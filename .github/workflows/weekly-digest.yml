@@ -1,0 +1,68 @@
+name: Wöchentlicher KassenInfodienst
+
+on:
+  # Jeden Freitag um 09:00 Uhr (UTC+0) → 09:00 Uhr MEZ = 08:00 UTC
+  # Für deutsche Zeit (MEZ/MESZ):
+  #   Winter (MEZ  = UTC+1): 08:00 UTC = 09:00 MEZ
+  #   Sommer (MESZ = UTC+2): 07:00 UTC = 09:00 MESZ
+  # → 08:00 UTC ist ein guter Kompromiss
+  schedule:
+    - cron: "0 8 * * 5"
+
+  # Manueller Start über GitHub UI (für Tests)
+  workflow_dispatch:
+    inputs:
+      kassen:
+        description: "Nur bestimmte Kassen (leer = alle), z.B.: TK BARMER DAK"
+        required: false
+        default: ""
+      tage:
+        description: "Recherchezeitraum in Tagen"
+        required: false
+        default: "14"
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: claude/health-insurance-news-digest-UlvZ8
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Abhängigkeiten installieren
+        run: pip install -r requirements.txt
+
+      - name: Digest erstellen und E-Mail senden
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+        run: |
+          # Kassen-Filter aus manuellem Aufruf
+          KASSEN_ARG=""
+          if [ -n "${{ github.event.inputs.kassen }}" ]; then
+            KASSEN_ARG="--kassen ${{ github.event.inputs.kassen }}"
+          fi
+
+          TAGE="${{ github.event.inputs.tage }}"
+          TAGE="${TAGE:-14}"
+
+          python digest.py $KASSEN_ARG --tage "$TAGE" --email
+
+      - name: Bericht als Artefakt speichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ github.run_id }}
+          path: reports/
+          retention-days: 90
