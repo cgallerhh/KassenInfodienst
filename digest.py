@@ -24,8 +24,6 @@ import os
 import smtplib
 import sys
 from datetime import date, timedelta
-from email import encoders
-from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -213,11 +211,175 @@ Schreibe auf Deutsch, prägnant und handlungsorientiert."""
 
 
 # ---------------------------------------------------------------------------
+# HTML-E-Mail
+# ---------------------------------------------------------------------------
+
+def build_html_email(report_content: str, today: date) -> str:
+    """Konvertiert den Markdown-Bericht in eine schöne HTML-E-Mail."""
+    import markdown as md_module
+
+    html_body = md_module.markdown(
+        report_content,
+        extensions=["tables", "fenced_code", "sane_lists"],
+    )
+
+    date_str = today.strftime("%d. %B %Y")
+
+    return f"""<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body {{
+      margin: 0; padding: 20px;
+      background: #eef2f7;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+      color: #333;
+    }}
+    .container {{ max-width: 720px; margin: 0 auto; }}
+
+    /* Header */
+    .header {{
+      background: linear-gradient(135deg, #1a3a5c 0%, #2563a8 100%);
+      padding: 32px 36px;
+      border-radius: 12px 12px 0 0;
+      text-align: center;
+    }}
+    .header h1 {{ color: white; margin: 0; font-size: 26px; letter-spacing: -0.5px; }}
+    .header p  {{ color: #a8c8e8; margin: 8px 0 0; font-size: 14px; }}
+
+    /* Body */
+    .content {{
+      background: white;
+      padding: 36px;
+      border-radius: 0 0 12px 12px;
+      border: 1px solid #dce4ef;
+      border-top: none;
+    }}
+
+    /* Kassen-Blöcke: jedes ## wird zur Kasse-Card */
+    h2 {{
+      color: #1a3a5c;
+      font-size: 20px;
+      margin: 40px 0 4px;
+      padding: 16px 20px 14px;
+      background: #f0f5fb;
+      border-left: 5px solid #2563a8;
+      border-radius: 0 8px 8px 0;
+    }}
+    h2:first-child {{ margin-top: 0; }}
+
+    /* Abschnittsüberschriften */
+    h3 {{
+      color: #444;
+      font-size: 15px;
+      margin: 20px 0 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #eee;
+    }}
+
+    /* Verkaufschancen hervorheben */
+    h3:contains("Verkaufschancen"),
+    h3[id*="verkaufschancen"] {{
+      color: #b45309;
+      background: #fffbeb;
+      padding: 6px 10px;
+      border-radius: 4px;
+      border-bottom: 2px solid #f59e0b;
+    }}
+
+    p   {{ line-height: 1.7; margin: 8px 0; }}
+    ul  {{ padding-left: 22px; line-height: 1.9; }}
+    li  {{ margin-bottom: 4px; }}
+
+    a {{
+      color: #2563a8;
+      text-decoration: none;
+      font-weight: 500;
+    }}
+    a:hover {{ text-decoration: underline; }}
+
+    strong {{ color: #111; }}
+    em {{ color: #555; }}
+
+    blockquote {{
+      border-left: 4px solid #2563a8;
+      margin: 12px 0;
+      padding: 10px 18px;
+      color: #555;
+      background: #f5f9ff;
+      border-radius: 0 6px 6px 0;
+      font-style: normal;
+    }}
+
+    /* Tabellen */
+    table {{
+      border-collapse: collapse;
+      width: 100%;
+      margin: 14px 0;
+      font-size: 13px;
+    }}
+    th {{
+      background: #1a3a5c;
+      color: white;
+      padding: 10px 14px;
+      text-align: left;
+    }}
+    td {{
+      padding: 9px 14px;
+      border-bottom: 1px solid #eee;
+    }}
+    tr:nth-child(even) td {{ background: #f8fafc; }}
+
+    hr {{
+      border: none;
+      border-top: 2px solid #e5eaf2;
+      margin: 32px 0;
+    }}
+
+    /* Emoji-Labels in Abschnitten */
+    h3 {{ position: relative; }}
+
+    /* Footer */
+    .footer {{
+      text-align: center;
+      padding: 20px;
+      color: #999;
+      font-size: 12px;
+      line-height: 1.6;
+    }}
+    .footer a {{ color: #aaa; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <div class="header">
+      <h1>🏥 KassenInfodienst</h1>
+      <p>Wöchentlicher Überblick &bull; {date_str}</p>
+    </div>
+
+    <div class="content">
+      {html_body}
+    </div>
+
+    <div class="footer">
+      Automatisch erstellt mit Claude Sonnet 4.6 &bull; {date_str}<br>
+      <a href="https://github.com/cgallerhh/KassenInfodienst">github.com/cgallerhh/KassenInfodienst</a>
+    </div>
+
+  </div>
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
 # E-Mail-Versand
 # ---------------------------------------------------------------------------
 
 def send_email(report_path: Path, summary: str, today: date) -> None:
-    """Sendet den Digest-Bericht per E-Mail via Gmail SMTP."""
+    """Sendet den Digest-Bericht als moderne HTML-E-Mail via Gmail SMTP."""
     gmail_user = os.environ.get("GMAIL_USER")
     gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
     recipient = os.environ.get("RECIPIENT_EMAIL") or gmail_user
@@ -229,38 +391,34 @@ def send_email(report_path: Path, summary: str, today: date) -> None:
         )
         return
 
-    subject = f"KassenInfodienst – Wöchentlicher Überblick {today.strftime('%d.%m.%Y')}"
+    report_content = report_path.read_text(encoding="utf-8")
+    subject = f"🏥 KassenInfodienst – {today.strftime('%d.%m.%Y')}"
 
-    msg = MIMEMultipart()
+    # Multipart: HTML + Plain-Text-Fallback
+    msg = MIMEMultipart("alternative")
     msg["From"] = gmail_user
     msg["To"] = recipient
     msg["Subject"] = subject
 
-    # E-Mail-Body: Executive Summary + Hinweis auf Anhang
-    body = (
+    # Plain-Text-Fallback (kurze Zusammenfassung)
+    plain = (
         f"KassenInfodienst – Wöchentlicher Überblick\n"
         f"{today.strftime('%d. %B %Y')}\n"
         f"{'=' * 50}\n\n"
-        f"{summary}\n\n"
-        f"{'=' * 50}\n"
-        f"Vollständiger Bericht im Anhang: {report_path.name}"
+        f"{summary or 'Bericht siehe HTML-Ansicht.'}\n"
     )
-    msg.attach(MIMEText(body, "plain", "utf-8"))
+    msg.attach(MIMEText(plain, "plain", "utf-8"))
 
-    # Anhang: Markdown-Datei
-    with open(report_path, "rb") as f:
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(f.read())
-    encoders.encode_base64(part)
-    part.add_header("Content-Disposition", f"attachment; filename={report_path.name}")
-    msg.attach(part)
+    # HTML-E-Mail (vollständiger gerenderter Bericht)
+    html = build_html_email(report_content, today)
+    msg.attach(MIMEText(html, "html", "utf-8"))
 
-    print(f"📧 Sende E-Mail an {recipient} ...")
+    print(f"📧 Sende HTML-E-Mail an {recipient} ...")
     with smtplib.SMTP("smtp.gmail.com", 587) as server:
         server.starttls()
         server.login(gmail_user, gmail_password)
         server.send_message(msg)
-    print(f"   ✅ E-Mail gesendet.")
+    print("   ✅ E-Mail gesendet.")
 
 
 # ---------------------------------------------------------------------------
