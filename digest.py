@@ -35,7 +35,7 @@ except ImportError:
 from kassen import KASSEN
 
 BATCH_SIZE = 5          # Kassen pro Claude-Aufruf
-MAX_SEARCHES = 15       # Web-Suchen pro Batch
+MAX_SEARCHES = 8        # Web-Suchen pro Batch (reduziert für Kostenoptimierung)
 REPORTS_DIR = Path("reports")
 
 
@@ -134,8 +134,8 @@ Wenn du für eine Kasse keine Informationen findest, vermerke das klar."""
     full_text = ""
 
     with client.messages.stream(
-        model="claude-opus-4-6",
-        max_tokens=8000,
+        model="claude-sonnet-4-6",
+        max_tokens=5000,
         system=system_prompt_with_cache(SYSTEM_PROMPT),
         tools=[
             {
@@ -191,7 +191,7 @@ Erstelle eine kurze **Executive Summary** (max. 500 Wörter) für den Account Ma
 Schreibe auf Deutsch, prägnant und handlungsorientiert."""
 
     with client.messages.stream(
-        model="claude-opus-4-6",
+        model="claude-sonnet-4-6",
         max_tokens=2000,
         messages=[{"role": "user", "content": prompt}],
     ) as stream:
