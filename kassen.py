@@ -1,6 +1,6 @@
 """
-Liste der 30+ größten gesetzlichen Krankenkassen in Deutschland.
-Domains sind bereinigt (ohne Karriere-Pfade).
+Top 15 größte gesetzliche Krankenkassen in Deutschland (nach Versichertenzahl).
+Domains bereinigt (ohne Karriere-Pfade).
 """
 
 KASSEN = [
@@ -108,117 +108,5 @@ KASSEN = [
         "domain": "bahn-bkk.de",
         "url": "https://www.bahn-bkk.de",
         "linkedin_search": "BAHN-BKK",
-    },
-    {
-        "name": "mkk – meine krankenkasse",
-        "short": "mkk",
-        "domain": "meine-krankenkasse.de",
-        "url": "https://www.meine-krankenkasse.de",
-        "linkedin_search": "mkk meine krankenkasse",
-    },
-    {
-        "name": "BIG direkt gesund",
-        "short": "BIG",
-        "domain": "big-direkt.de",
-        "url": "https://www.big-direkt.de",
-        "linkedin_search": "BIG direkt gesund",
-    },
-    {
-        "name": "mhplus BKK",
-        "short": "mhplus",
-        "domain": "mhplus-krankenkasse.de",
-        "url": "https://www.mhplus-krankenkasse.de",
-        "linkedin_search": "mhplus BKK",
-    },
-    {
-        "name": "IKK gesund plus",
-        "short": "IKK gesund plus",
-        "domain": "ikk-gesundplus.de",
-        "url": "https://www.ikk-gesundplus.de",
-        "linkedin_search": "IKK gesund plus",
-    },
-    {
-        "name": "Novitas BKK",
-        "short": "Novitas BKK",
-        "domain": "novitas-bkk.de",
-        "url": "https://www.novitas-bkk.de",
-        "linkedin_search": "Novitas BKK",
-    },
-    {
-        "name": "vivida BKK",
-        "short": "vivida BKK",
-        "domain": "vividabkk.de",
-        "url": "https://www.vividabkk.de",
-        "linkedin_search": "vivida BKK",
-    },
-    {
-        "name": "BKK Linde",
-        "short": "BKK Linde",
-        "domain": "bkk-linde.de",
-        "url": "https://www.bkk-linde.de",
-        "linkedin_search": "BKK Linde",
-    },
-    {
-        "name": "IK – Die Innovationskasse",
-        "short": "IK",
-        "domain": "die-ik.de",
-        "url": "https://www.die-ik.de",
-        "linkedin_search": "Innovationskasse IK",
-    },
-    {
-        "name": "Bosch BKK",
-        "short": "Bosch BKK",
-        "domain": "bosch-bkk.de",
-        "url": "https://www.bosch-bkk.de",
-        "linkedin_search": "Bosch BKK",
-    },
-    {
-        "name": "IKK Brandenburg und Berlin",
-        "short": "IKK BB",
-        "domain": "ikkbb.de",
-        "url": "https://www.ikkbb.de",
-        "linkedin_search": "IKK Brandenburg Berlin",
-    },
-    {
-        "name": "SECURVITA BKK",
-        "short": "SECURVITA",
-        "domain": "securvita.de",
-        "url": "https://www.securvita.de",
-        "linkedin_search": "SECURVITA BKK",
-    },
-    {
-        "name": "Debeka BKK",
-        "short": "Debeka BKK",
-        "domain": "debeka-bkk.de",
-        "url": "https://www.debeka-bkk.de",
-        "linkedin_search": "Debeka BKK",
-    },
-    {
-        "name": "Salus BKK",
-        "short": "Salus BKK",
-        "domain": "salus-bkk.de",
-        "url": "https://www.salus-bkk.de",
-        "linkedin_search": "Salus BKK",
-    },
-    {
-        "name": "R+V BKK",
-        "short": "R+V BKK",
-        "domain": "ruv-bkk.de",
-        "url": "https://www.ruv-bkk.de",
-        "linkedin_search": "R+V BKK",
-    },
-    {
-        "name": "BKK Gildemeister Seidensticker",
-        "short": "BKK GS",
-        "domain": "bkkgs.de",
-        "url": "https://www.bkkgs.de",
-        "linkedin_search": "BKK Gildemeister Seidensticker",
-    },
-    {
-        "name": "BKK Pfalz",
-        "short": "BKK Pfalz",
-        "domain": "bkk-pfalz.de",
-        "url": "https://www.bkk-pfalz.de",
-        "linkedin_search": "BKK Pfalz",
     },
 ]
