@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Umgebungsvariablen (API-Keys nicht ins Git!)
+.env
+
+# Generierte Berichte (lokal behalten, nicht ins Repo)
+reports/
+
+# IDE
+.idea/
+.vscode/
+*.swp
