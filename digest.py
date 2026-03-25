@@ -153,7 +153,7 @@ Wenn du für eine Kasse keine Informationen findest, vermerke das klar."""
 
         final_message = stream.get_final_message()
         for block in final_message.content:
-            if hasattr(block, "text"):
+            if hasattr(block, "text") and block.text is not None:
                 full_text += block.text
 
     return full_text
@@ -202,7 +202,7 @@ Schreibe auf Deutsch, prägnant und handlungsorientiert."""
         final_message = stream.get_final_message()
         result = ""
         for block in final_message.content:
-            if hasattr(block, "text"):
+            if hasattr(block, "text") and block.text is not None:
                 result += block.text
         return result
 
