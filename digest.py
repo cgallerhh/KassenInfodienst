@@ -21,8 +21,13 @@ Verwendung:
 import anthropic
 import argparse
 import os
+import smtplib
 import sys
 from datetime import date, timedelta
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 
 # Lade .env-Datei falls vorhanden (pip install python-dotenv)
@@ -208,6 +213,57 @@ Schreibe auf Deutsch, prägnant und handlungsorientiert."""
 
 
 # ---------------------------------------------------------------------------
+# E-Mail-Versand
+# ---------------------------------------------------------------------------
+
+def send_email(report_path: Path, summary: str, today: date) -> None:
+    """Sendet den Digest-Bericht per E-Mail via Gmail SMTP."""
+    gmail_user = os.environ.get("GMAIL_USER")
+    gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
+    recipient = os.environ.get("RECIPIENT_EMAIL") or gmail_user
+
+    if not gmail_user or not gmail_password:
+        print(
+            "⚠️  E-Mail übersprungen: GMAIL_USER oder GMAIL_APP_PASSWORD fehlt in .env",
+            file=sys.stderr,
+        )
+        return
+
+    subject = f"KassenInfodienst – Wöchentlicher Überblick {today.strftime('%d.%m.%Y')}"
+
+    msg = MIMEMultipart()
+    msg["From"] = gmail_user
+    msg["To"] = recipient
+    msg["Subject"] = subject
+
+    # E-Mail-Body: Executive Summary + Hinweis auf Anhang
+    body = (
+        f"KassenInfodienst – Wöchentlicher Überblick\n"
+        f"{today.strftime('%d. %B %Y')}\n"
+        f"{'=' * 50}\n\n"
+        f"{summary}\n\n"
+        f"{'=' * 50}\n"
+        f"Vollständiger Bericht im Anhang: {report_path.name}"
+    )
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    # Anhang: Markdown-Datei
+    with open(report_path, "rb") as f:
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(f.read())
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", f"attachment; filename={report_path.name}")
+    msg.attach(part)
+
+    print(f"📧 Sende E-Mail an {recipient} ...")
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.starttls()
+        server.login(gmail_user, gmail_password)
+        server.send_message(msg)
+    print(f"   ✅ E-Mail gesendet.")
+
+
+# ---------------------------------------------------------------------------
 # Hauptprogramm
 # ---------------------------------------------------------------------------
 
@@ -239,6 +295,11 @@ def parse_args() -> argparse.Namespace:
         "--kein-summary",
         action="store_true",
         help="Executive Summary überspringen",
+    )
+    parser.add_argument(
+        "--email",
+        action="store_true",
+        help="Bericht nach Fertigstellung per E-Mail senden (Gmail SMTP)",
     )
     return parser.parse_args()
 
@@ -340,6 +401,7 @@ def main() -> None:
         print(f"   ✅ Fertig.")
 
     # Executive Summary
+    summary = ""
     if not args.kein_summary:
         print()
         print("📊 Erstelle Executive Summary ...")
@@ -361,9 +423,14 @@ def main() -> None:
 
     print()
     print(f"✅ Bericht gespeichert: {output_path}")
+
+    # E-Mail versenden
+    if args.email:
+        print()
+        send_email(output_path, summary, today)
+
     print()
-    print("Tipp: Diesen Bericht wöchentlich per Cronjob automatisieren:")
-    print("  0 7 * * 1 cd /pfad/zu/KassenInfodienst && python digest.py")
+    print("Tipp: Wöchentliche Automatisierung → python setup_schedule.py")
 
 
 if __name__ == "__main__":
