@@ -23,6 +23,7 @@ import argparse
 import os
 import smtplib
 import sys
+import time
 from datetime import date, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -37,8 +38,10 @@ except ImportError:
 
 from kassen import KASSEN
 
-BATCH_SIZE = 5          # Kassen pro Claude-Aufruf
-MAX_SEARCHES = 8        # Web-Suchen pro Batch (reduziert für Kostenoptimierung)
+BATCH_SIZE = 4          # Kassen pro Claude-Aufruf (reduziert für Stabilität)
+MAX_SEARCHES = 6        # Web-Suchen pro Batch
+BATCH_PAUSE = 15        # Sekunden Pause zwischen Batches (Search-Rate-Limit)
+MAX_RETRIES = 2         # Wiederholungsversuche bei Fehler
 REPORTS_DIR = Path("reports")
 
 
@@ -544,11 +547,20 @@ def main() -> None:
         batch_names = " | ".join(k["short"] for k in batch)
         print(f"📡 Batch {idx}/{len(batches)}: {batch_names} ...")
 
-        try:
-            research = research_batch(client, batch, args.tage)
-        except anthropic.APIError as e:
-            print(f"   ⚠️  API-Fehler: {e}", file=sys.stderr)
-            research = f"\n> ⚠️ Batch {idx} konnte nicht abgerufen werden: {e}\n"
+        research = ""
+        for attempt in range(1, MAX_RETRIES + 2):
+            try:
+                research = research_batch(client, batch, args.tage)
+                break
+            except Exception as e:
+                if attempt <= MAX_RETRIES:
+                    wait = 30 * attempt
+                    print(f"   ⚠️  Fehler (Versuch {attempt}): {e}", file=sys.stderr)
+                    print(f"   ⏳ Warte {wait}s vor Wiederholung ...", file=sys.stderr)
+                    time.sleep(wait)
+                else:
+                    print(f"   ❌ Batch {idx} nach {MAX_RETRIES + 1} Versuchen fehlgeschlagen: {e}", file=sys.stderr)
+                    research = f"\n> ⚠️ Batch {idx} ({batch_names}) konnte nicht abgerufen werden.\n"
 
         all_research_parts.append(research)
 
@@ -557,6 +569,11 @@ def main() -> None:
             f.write("\n")
 
         print(f"   ✅ Fertig.")
+
+        # Pause zwischen Batches (Search-Rate-Limit vermeiden)
+        if idx < len(batches):
+            print(f"   ⏳ Pause {BATCH_PAUSE}s ...")
+            time.sleep(BATCH_PAUSE)
 
     # Executive Summary
     summary = ""
