@@ -1,43 +1,45 @@
 Bereits berichtet KW 13 (26.03.2026):
 
-# KassenInfodienst – KW 14/2025
+# 📣 LinkedIn-Radar
+
+Diese Woche dominiert die **DAK-Gesundheit** den Branchenradar – mit einer thematisch bemerkenswert breiten Aufstellung, die von Mediensucht über Betriebliches Gesundheitsmanagement bis hin zur digitalen Identifikation reicht. Vier Posts, ein erkennbares Muster: Die DAK kommuniziert offensiv, datengestützt und mit Haltung.
 
 ---
 
-## 📣 LinkedIn-Radar
+**Mediensuchtstudie: KI-Chatbots als Seelentröster für psychisch belastete Jugendliche**
 
-### TK dominiert die Woche – von Verwaltungsrat bis Krankenstand-Rekord
-
-Die Techniker Krankenkasse bespielt den LinkedIn-Feed dieser Woche nahezu im Alleingang. Vier relevante Posts, unterschiedliche Absender, ein roter Faden: Die TK positioniert sich konsequent als Meinungsführerin im deutschen Gesundheitswesen – und nutzt dafür jeden verfügbaren Kanal.
-
-**Verwaltungsrat verabschiedet Resolution**
-Das meistdiskutierte Signal der Woche kommt aus Hamburg: Der TK-Verwaltungsrat tagte zur Frühjahrssitzung und verabschiedete eine Resolution. Das Gremium, das die Interessen von rund 12,3 Millionen Versicherten vertritt, hat damit öffentlich Haltung markiert – zu welchem Thema genau, lässt der Post bewusst offen, erzeugt aber Aufmerksamkeit. **Einordnung:** Verwaltungsratsresolutionen sind in der GKV selten kommunikatives Ereignis. Dass die TK das explizit in den Feed hebt, ist strategisch. Wer die Resolution noch nicht im Volltext hat: besorgen.
-
-**„Wir diskutieren an der Oberfläche" – klare Ansage aus dem Verwaltungsrat**
-Ein zweiter Post aus demselben Sitzungskontext wird noch deutlicher. Der Autor – erkennbar ein Verwaltungsratsmitglied – formuliert pointiert: Krankenhausstrukturen, Arzneimittelpreise, Beitragssätze seien zwar wichtig, aber das Gesundheitswesen diskutiere nach wie vor an der Oberfläche. **Was darunterliegt, bleibt im Post bewusst unausgesprochen** – klassische LinkedIn-Dramaturgie. Dennoch: Die Botschaft sitzt. Wer aus dem TK-Umfeld öffentlich so redet, hat intern Rückendeckung. Das ist kein Ausreißer, das ist Programm.
-
-**Dr. Jens Baas im Podcast: Digitalisierung, KI, Bürokratie**
-TK-Chef Baas war Podcast-Gast – und die TK promotet das professionell via LinkedIn. Themen: Digitalisierung, KI und Bürokratieabbau im System. 15.000 Mitarbeitende, 60 Milliarden Euro Volumen, 12 Millionen Versicherte – die Eckdaten werden gleich zu Beginn gesetzt, nicht aus Bescheidenheit, sondern um Relevanz zu markieren. **Einordnung:** Baas ist einer der wenigen GKV-CEOs, die konsequent in Öffentlichkeitspräsenz investieren. Dieser Podcast-Auftritt ist Teil einer erkennbaren Kommunikationsstrategie rund um die großen Systemthemen. Wer ihn noch nicht auf der Shortlist für ein eigenes Gespräch hat: jetzt eintragen.
-
-**Krankenstand auf Rekordhoch – und Wellbeing-Programme verpuffen**
-Der LinkedIn-Post mit dem stärksten inhaltlichen Biss kommt ohne TK-Logo, aber mit TK-Daten: **17,7 Fehltage pro Erwerbsperson in 2024** – Rekordwert laut TK-Gesundheitsreport. Der Autor stellt die unbequeme Frage: Warum investieren Unternehmen mehr denn je in Meditationsapps und Achtsamkeitsprogramme, während die Fehlzeiten gleichzeitig steigen? **Einordnung:** Diese Diskrepanz ist kein neues Phänomen, aber sie wird selten so direkt benannt. Der Post dürfte hohe Resonanz bei HR-Verantwortlichen und BGM-Dienstleistern erzeugen. Für die TK ist es smarte Datenpolitik: eigene Zahlen, fremde Reichweite.
-
-**TK-Landesvertretung Saarland**
-Ein weiterer Post der Woche lobt die Themenarbeit der TK-Landesvertretung Saarland – ohne konkreten Inhalt zu liefern. Für unsere Zwecke: nachrangig, kein Handlungsbedarf.
+Die neue DAK-Mediensuchtstudie liefert den inhaltlich stärksten Impuls der Woche. Der zentrale Befund: Psychisch belastete Kinder und Jugendliche greifen überdurchschnittlich häufig auf KI-Chatbots zur emotionalen Unterstützung zurück. Der dazugehörige Post nimmt ausdrücklich den „reflexhaften Ruf nach mehr Medienkompetenz" in die Kritik – eine klare Ansage gegen Scheinlösungen. **Einordnung:** Das ist mutig und richtig. Die DAK positioniert sich hier nicht als Datenproduzentin, sondern als politische Kommentatorin. Wer die Vollstudie noch nicht gelesen hat: jetzt nachholen. Das Thema KI + psychische Gesundheit + Minderjährige wird in den nächsten Quartalen regulatorisch und medizinisch an Fahrt aufnehmen.
 
 ---
 
-## 🔍 Lage & Einordnung
+**BGM-Expertendialog Berlin: 100 Fachleute, ein Fazit**
 
-Die TK nutzt die Verwaltungsratssitzung als kommunikatives Ereignis – das ist professionell und konsequent, aber auch ein Signal an den Markt: **Governance wird zur PR.** Andere Kassen, die ihre Verwaltungsräte noch als rein intern verstehen, sollten das aufmerksam beobachten.
-
-Die Kombination aus Baas-Podcast, Krankenstand-Daten und Verwaltungsrats-Resolution ergibt kein Zufallsmuster. Die TK steuert gezielt auf eine Positionierung als System-Gestalter hin – nicht nur als Kasse. Das ist relevant für alle, die mit der TK verhandeln, kooperieren oder konkurrieren.
-
-**Hinweis zur Datenlage:** TED-API diese Woche nicht verfügbar (technischer Fehler). Ausschreibungsradar fällt aus. Werden wir in KW 15 nacharbeiten.
+Über 100 BGM-Fachleute kamen zum DAK-Expertendialog in Berlin zusammen – Vorträge, Panels, Workshops. Der Post streicht explizit „Chancen, Schwierigkeiten und vor allem Bedarfe" eines wirkungsvollen BGM heraus. **Einordnung:** Das Format ist nicht neu, aber die öffentliche Kommunikation darüber ist es in dieser Konsequenz. Die DAK baut sich sichtbar als Plattformgeberin im BGM-Diskurs auf. Für Anbieter, Arbeitgeber und Gesundheitspolitiker, die in diesem Feld aktiv sind: Die DAK hört zu – und sie dokumentiert, was sie hört. Das hat strategischen Wert.
 
 ---
 
-## ✅ Action Items
+**ePA für alle: DAK führt ePass-Identifikation via Nect ein**
 
-| # | Aufgabe | Frist |
-|---|----
+Die DAK vereinfacht den Zugang zu digitalen Angeboten – konkret zur elektronischen Patientenakte – über ein neues Identifikationsverfahren namens **ePass** des Anbieters Nect. Kein Gang zur Postfiliale, keine VideoIdent-Odyssee: Registrierung und Identifikation direkt über den digitalen Reisepass. **Einordnung:** Das ist ein praktischer, aber unterschätzter Schritt. Die ePA-Adoption hängt aktuell weniger an Skepsis als an Reibungsverlusten im Onboarding. Wer den Zugang vereinfacht, gewinnt. Die DAK zeigt hier, dass Digitalisierung kein Selbstzweck ist, wenn sie konkret Hürden abbaut. Andere Kassen sollten den Rollout genau beobachten.
+
+---
+
+**Selbstfürsorge und Partnerschaft: Die „Be Butterfly"-Geschichte**
+
+Ein ungewöhnlicher Post rundet die DAK-Woche ab: Eine Unternehmerin schildert offen, wie sie mit einem noch unausgereiften Konzept rund um das Thema Selbstfürsorge bei der DAK anklopfte – und wie DAK-Mitarbeiterin Katja Ferber ihr dennoch zuhörte. **Einordnung:** Kein großes Programm, keine Zahlen, keine Policy. Aber ein Echtzeit-Zeugnis darüber, wie eine Krankenkasse als Partnerorganisation wahrgenommen wird. Für die Außenwirkung im Mittelstand und bei Start-ups im Gesundheitsbereich ist solches Storytelling wertvoller als jede Pressemitteilung. Clever kuratiert.
+
+---
+
+## ⚡ Beschaffung & Ausschreibungen
+
+Die TED-Schnittstelle der EU war diese Woche technisch nicht erreichbar. Ausschreibungsdaten aus dem Supplement zum Amtsblatt der EU können daher nicht berichtet werden. **Empfehlung:** ted.europa.eu direkt prüfen, Suchfilter GKV/Sozialversicherung manuell anwenden.
+
+---
+
+## 🗓️ Action Items der Woche
+
+1. **DAK-Mediensuchtstudie vollständig lesen** – insbesondere die Daten zu KI-Nutzung bei psychisch belasteten Jugendlichen. Thema wird politisch heiß; eigene Position vorbereiten. *(bis Ende KW 15)*
+
+2. **ePass/Nect-Verfahren der DAK evaluieren** – Ist das Modell auf die eigene ePA-Onboarding-Strecke übertragbar? Technisches Briefing intern anstoßen. *(bis KW 16)*
+
+3. **TED-Ausschreibungsdatenbank manuell checken** – Wegen API-Ausfall diese Woche keine automatisierte Auswertung möglich. Relevante Losgruppen (IT, 
