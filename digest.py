@@ -215,18 +215,50 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
 # LinkedIn & RSS-Feed Scraping
 # ---------------------------------------------------------------------------
 
+def _parse_rss_xml(xml_text: str, cutoff: date) -> list[tuple[str, str]]:
+    """Parst RSS-XML und gibt Liste von (title, link) Tupeln zurück, gefiltert nach cutoff."""
+    import xml.etree.ElementTree as ET
+    from email.utils import parsedate
+
+    results = []
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return results
+
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    # RSS 2.0 items
+    for item in root.findall(".//item"):
+        title_el = item.find("title")
+        link_el = item.find("link")
+        pub_el = item.find("pubDate")
+        if title_el is None or link_el is None:
+            continue
+        title = (title_el.text or "").strip()
+        link = (link_el.text or "").strip()
+        if not title or not link:
+            continue
+        if pub_el is not None and pub_el.text:
+            parsed = parsedate(pub_el.text)
+            if parsed:
+                pub_date = date(parsed[0], parsed[1], parsed[2])
+                if pub_date < cutoff:
+                    continue
+        results.append((title, link))
+    return results
+
+
 def scrape_linkedin_rss(kassen: list[dict], tage: int) -> str:
     """Scraped LinkedIn-Posts via Google News RSS und direkte LinkedIn-Unternehmensseiten.
 
-    Nutzt feedparser + BeautifulSoup für öffentlich zugängliche Inhalte.
+    Nutzt stdlib xml.etree + BeautifulSoup für öffentlich zugängliche Inhalte.
     Kein LinkedIn-Account oder API-Key erforderlich.
     Gibt einen Markdown-Block zurück der als zusätzlicher Kontext in den Newsletter fließt.
     """
     try:
-        import feedparser
         from bs4 import BeautifulSoup
     except ImportError:
-        print("   ⚠️  feedparser/beautifulsoup4 nicht installiert – LinkedIn-RSS übersprungen.")
+        print("   ⚠️  beautifulsoup4 nicht installiert – LinkedIn-RSS übersprungen.")
         return ""
 
     today = date.today()
@@ -258,26 +290,14 @@ def scrape_linkedin_rss(kassen: list[dict], tage: int) -> str:
                 + "&hl=de&gl=DE&ceid=DE:de"
             )
             try:
-                feed = feedparser.parse(rss_url)
-                for entry in (feed.entries or [])[:8]:
-                    # Datumsfilter
-                    pub = entry.get("published_parsed")
-                    if pub:
-                        pub_date = date(pub[0], pub[1], pub[2])
-                        if pub_date < cutoff:
-                            continue
-                    link = entry.get("link", "")
-                    title = entry.get("title", "").strip()
-                    # Nur LinkedIn-Links oder Branchennews interessant
-                    if title and link:
-                        company_findings.append(
-                            f"  - {title} → {link}"
-                        )
+                resp = req.get(rss_url, headers=HEADERS, timeout=10)
+                if resp.status_code == 200:
+                    for title, link in _parse_rss_xml(resp.text, cutoff)[:8]:
+                        company_findings.append(f"  - {title} → {link}")
             except Exception:
                 pass
 
-        # 2. Direkte LinkedIn-Unternehmensseite (öffentliche Meta-Tags)
-        #    Extrahiert og:description ohne Login möglich, Rate-Limit beachten
+        # 2. Direkte LinkedIn-Unternehmensseite (öffentliche og:-Meta-Tags)
         linkedin_slug = company.lower().replace(" ", "-").replace("(", "").replace(")", "")
         linkedin_url = f"https://www.linkedin.com/company/{linkedin_slug}/posts/"
         try:
