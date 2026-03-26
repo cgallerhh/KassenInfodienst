@@ -40,7 +40,7 @@ except ImportError:
 from kassen import KASSEN
 
 BATCH_SIZE = 1          # Eine Kasse pro API-Call (verhindert parallele Search-Floods)
-MAX_SEARCHES = 2        # 2 gezielte Suchen pro Kasse (reicht für gute Abdeckung)
+MAX_SEARCHES = 3        # 3 gezielte Suchen pro Kasse (News + Ausschreibungen + LinkedIn)
 BATCH_PAUSE = 20        # Sekunden Pause zwischen Calls (Rate-Limit-Reset)
 MAX_RETRIES = 2         # Wiederholungsversuche bei Fehler
 API_TIMEOUT = 180       # Timeout pro API-Call in Sekunden (3 Min max)
@@ -157,13 +157,20 @@ def research_batch(client: anthropic.Anthropic, batch: list[dict], tage: int) ->
 
 **{k['name']}** | {k['url']}
 
-Führe genau 2 Web-Suchen durch:
+Führe genau 3 Web-Suchen durch:
 1. "{k['name']} Vorstand Wechsel Stellenabbau KI Automatisierung 2025 2026"
-2. "{k['name']} Ausschreibung ted.europa.eu LinkedIn Entscheider 2025 2026"
+   → Personalwechsel, Stellenabbau, konkrete IT/KI-Projekte
+2. "{k['name']} Ausschreibung ted.europa.eu Vergabe 2025 2026"
+   → TED-Ausschreibungen >1 Mio €, öffentliche Vergaben
+3. "{k['linkedin_search']} site:linkedin.com Vorstand Leiter Geschäftsbereich Abteilungsleiter"
+   → LinkedIn-Posts von C-Level, Geschäftsbereichsleitern, Abteilungsleitern
+   → BESONDERS relevant: Posts zu Projektstarts/-abschlüssen, Strategiewechseln,
+     Digitalisierungserfolgen, Personalaufbau/-abbau, Meinungen zu Branchenthemen
 
 NUR berichten wenn echte Highlights gefunden:
-- Personalwechsel im Vorstand/C-Level/Bereichsleitung
-- LinkedIn-Posts von Entscheidern mit hoher Resonanz (>50 Reaktionen)
+- Personalwechsel im Vorstand/C-Level/Bereichsleitung (wer kommt, wer geht)
+- LinkedIn-Posts von Entscheidern: Wer äußert sich wozu? Was verrät der Post
+  über die strategische Richtung der Kasse? Welche Relevanz für IT-Vertrieb?
 - TED-Ausschreibungen >1 Mio € Vertragslaufzeit
 - Konkrete KI/Automatisierungsprojekte (Go-Lives, Starts, Partner)
 - Stellenabbau, Fusionsgerüchte, politische Konflikte
