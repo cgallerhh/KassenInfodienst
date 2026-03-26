@@ -762,6 +762,8 @@ def filter_kassen(args: argparse.Namespace) -> list[dict]:
         k for k in KASSEN
         if k["short"].upper() in filter_set
         or k["name"].upper() in filter_set
+        # Mehrteilige Kurznamen (z.B. "BKK firmus"): alle Wörter im Filter vorhanden?
+        or all(w.upper() in filter_set for w in k["short"].split())
     ]
 
     if not result:
