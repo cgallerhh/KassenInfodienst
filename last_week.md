@@ -1,45 +1,47 @@
 # Bereits berichtet – KW 13 (26.03.2026)
 
-# KassenInfodienst | KW 12–13/2026
-*26. März 2026 | Für Account Manager im GKV-Vertrieb*
+# KassenInfodienst | KW 13–14/2026
+*Erscheinungsdatum: 02. April 2026 | Für Account Manager im GKV-Vertrieb*
 
 ---
 
 ## 👤 Personalien
 
-**hkk – Das Fenster steht offen, aber nicht ewig.** Jessica Probst ist seit 1. Januar 2026 Vorständin der Handelskrankenkasse und verantwortet operativen Betrieb, Marketing, Vertrieb und Personal. Der Verwaltungsrat hat die Doppelspitze mit Probst und dem langjährigen Vorstandsvorsitzenden Michael Lempe explizit für die Wachstumsphase Richtung 1-Million-Versicherten-Marke gebaut. Erste 100 Tage: laufen. Wer noch keinen Termin angefragt hat, sollte das diese Woche tun.
+**KKH – Der IT-Mann übernimmt das Steuer.** Vollert, langjähriger CIO der Kaufmännischen Krankenkasse, ist in den Vorstand berufen worden – und übernimmt die Aufgaben von Rudolf Hauke. Zehn Jahre CIO-Erfahrung, tief verwurzelt in der Systemlandschaft, jetzt mit Vorstandsmandat. Das verändert die Vertriebslogik: Wer bisher über die IT-Abteilung in die KKH kam, spielt jetzt eine Ebene zu tief. Vollert kennt Ihre Lösungen vermutlich besser als mancher Ihrer eigenen Kollegen – entsprechend hoch muss der Gesprächslevel sein.
 
-**BKK firmus – Neue Doppelspitze, neue Spielregeln.** Seit Januar 2025 führt Dirk Harrer die firmus, flankiert von Vize Dominik Weymann – der Mann kommt aus der Unternehmenssteuerung, denkt also in Kennzahlen und Steuerungslogik. Nach dem Abgang von Langzeit-Vorstand Gerhard Wargers (über 20 Jahre im Amt) ist das Haus bereit für neue Gesprächspartner. Erstkontakt zu beiden: überfällig.
+Und: Der CIO-Stuhl ist vakant. Wer ihn besetzt, steuert die nächste Vergabewelle. Diese Information hat mehr Wert als jede Ausschreibungssuche.
 
-**TK – Keine Bewegung, aber Beobachtungsstufe bleibt.** Das Vorstandstrio Baas / Ballast / Walkenhorst bleibt stabil. Karen Walkenhorst verantwortet Digitalisierung und Versorgung – der strategisch exponierteste Posten im Trio. Keine bestätigte Veränderung, aber die Redaktion behält diesen Stuhl im Blick.
+**Audi BKK – Strategin übernimmt Scheinwerfer-Kasse.** Dr. Anja Schramm ist zum 1. Mai 2025 als neue Vorstandsvorsitzende angetreten – Nachfolgerin von Gerhard Fuchs, der nach über drei Jahrzehnten abgeht. Schramm kommt von der AOK Bayern, Profil: strategische Versorgungssteuerung. Kein Verwalter-Typ, sondern eine Gestalterin. Eine Kasse mit Markenwert (*Audi*), neuem Führungskopf und strategischem Steuerungsanspruch – das ist kein Status-quo-Betrieb. Wer noch nicht auf Schramm-Radar ist: Nachhole-Bedarf.
 
 ---
 
 ## 🤖 KI & Automatisierung
 
-**hkk denkt in KI-Infrastruktur – und zeigt es.** Am 27. Februar 2026 veröffentlichte die hkk eine dedizierte „Grounding Page" – eine strukturierte Faktenseite explizit für KI-Retrieval-Systeme. Das ist kein Versehen der IT-Abteilung, das ist eine Designentscheidung. Wer eine solche Seite anlegt, plant den Einsatz KI-gestützter Prozesse. 1.600 Mitarbeitende, 3,8 Mrd. Euro KV-Volumen – das Verhältnis schreit nach Automatisierung. Chatbots, RPA, Antragsbearbeitung: Einstiegspunkt jetzt suchen, bevor der Wettbewerber die Agenda setzt.
-
-**TK – CIO Aude Vik hat ihren Einkaufszettel öffentlich gemacht.** Process Mining, Datenplattform-Ausbau, KI-Einführung, Cloud-Erweiterung – vier Prioritäten, öffentlich kommuniziert, keine Interpretationsleistung nötig. Vik ist eine Interne (Berufung durch Baas mit explizitem Lob), kennt die Prozesse und hat jetzt das Mandat, die Werkzeuge zu wechseln. Die TK hat 53,8 Mrd. Euro Budget. Wer in einem der vier Felder etwas anzubieten hat: Die Tür hat einen Namen. Sie heißt Aude Vik.
+**KKH – Fraud Detection sucht Lösung, nicht Angebot.** Chefermittler Penkov hat öffentlich positioniert: KI ist der „zukunftsweisende Schlüssel für die Ermittlungsarbeit". Hintergrund: 5,4 Mio. Euro Schaden durch Betrug und Korruption im vergangenen Jahr – Rekordwert. Das ist kein vages Sondierungsinteresse. Das ist ein öffentlich erklärtes Problem mit einem öffentlich erklärten Lösungsweg. Wer SIU-Lösungen, Abrechnungsanalyse oder Anomalieerkennung im Portfolio hat, muss jetzt nicht recherchieren – er muss anrufen.
 
 ---
 
 ## 💬 Flurfunk
 
-**SBK – Post-Fusions-Modus.** Seit Januar 2026 ist die SBK mit der BKK Voralb Heller Index Leuze verschmolzen. Frisch fusionierte Kassen bedeuten: Systemkonsolidierung, Doppelstrukturen, offene IT-Fragen. Dazu kommen 3,8 Prozent Zusatzbeitrag ab August 2025 – Effizienz ist keine Wahl mehr. Post-Fusions-Ausschreibungen kommen erfahrungsgemäß 3–6 Monate nach Vollzug. Das Fenster öffnet sich im April. Wer im April nicht präsent ist, trifft die Entscheidungen nicht.
+**SBK – Fusion vollzogen, Integrationsarbeit läuft.** Die Verschmelzung mit der BKK Voralb ist seit 01.01.2026 vollzogen – soweit bekannt aus KW 12/13. **Neu diese Woche:** Dr. Christian Ullrich, Bereichsleiter IT Betrieb und Infrastruktur mit über 17 Jahren Haus-Erfahrung, ist vom Verwaltungsrat zum stellvertretenden Vorstand gewählt worden. Das ist die wesentliche Entwicklung: Der IT-Mann sitzt jetzt im Vorstandsbüro – parallel zu Dr. Demmler, die das Daten-und-Prävention-Framing nach außen trägt. Post-Fusions-IT-Konsolidierung mit IT-Vorstand: Das Entscheidungsfenster ist offen, die Entscheider sind namentlich bekannt.
 
-**TK – Baas kämpft auf zwei Fronten.** Die TK gehört zu den Kassen, die den Bund wegen nicht kostendeckender Pauschalen für Bürgergeld-Empfänger verklagen. Das ist kein juristisches Randthema: Baas sucht öffentlich den Konflikt mit der Bundesregierung und treibt intern eine ambitionierte IT-Agenda. Kostendruck plus Digitalisierungsdruck ist historisch der verlässlichste Treiber für Automatisierungsinvestitionen. Nutzen Sie das als Gesprächseinstieg – nicht als Hintergrundwissen.
-
----
-
-## ⚠️ Recherche-Hinweis
-
-TED-Ausschreibungsrecherche konnte in dieser Ausgabe technisch nicht vollständig durchgeführt werden. **Manuelle Nachrecherche dringend empfohlen:** ted.europa.eu → Suchbegriffe: „Techniker Krankenkasse", „hkk", „SBK Siemens", „BKK firmus", „Handelskrankenkasse" | CPV 72000000ff. (IT-Dienstleistungen). Bei TK und SBK besteht akutes Ausschreibungspotenzial.
+Zur Erinnerung an den strukturellen Rahmen: Zusatzbeitrag von 1,7 % (2024) auf 3,8 % (ab August 2025). ROI-Argumente brauchen hier keine Übersetzung.
 
 ---
 
-## 🎯 Action Items – diese Woche
+## 🎯 Action Items – Diese Woche, terminiert
 
-| # | Aktion | Kasse | Deadline |
-|---|--------|-------|----------|
-| 1 | Terminanfrage an **Jessica Probst** (Vorständin, operativer Betrieb) | hkk | **31.03.2026** – 100-Tage-Fenster schließt sich |
-| 2 | Erstkontakt zu **Dirk Harrer** und **Dominik Weym
+**Bis 09. April:**
+→ **KKH / Vollert-Antrittsbesuch anfragen.** Die ersten 100 Tage laufen – der Kalender eines neuen Vorstands ist noch formbar. Betreff: strategische IT-Roadmap post-Amtsantritt. Wer wartet, bis Vollert sich eingelebt hat, wartet zu lange.
+
+**Bis 09. April:**
+→ **KKH / CIO-Nachfolge tracken.** Vollerts früherer Stuhl ist vakant. Netzwerk aktivieren – interner Aufstieg oder externer Kandidat? Der neue CIO wird die nächste Ausschreibungswelle verantworten. Diesen Namen brauchen Sie, bevor er im Organigramm steht.
+
+**Bis 16. April:**
+→ **KKH / Penkov-Kontakt zu Fraud Detection.** Öffentliches Statement als Türöffner nutzen. Kurze, präzise Anfrage: kein generisches Pitch-Deck, sondern konkreter Bezug auf das 5,4-Mio.-Problem. SIU, Anomalieerkennung, KI-Abrechnungsanalyse – Lösung vor Feature.
+
+**Bis 16. April:**
+→ **SBK / Dr. Christian Ullrich ansprechen.** Neuer stellvertretender Vorstand, IT-Infrastruktur-Background, frisch fusionierte Kasse. Thema: IT-Integration, Systemkonsolidierung, Datenmigration post-Fusion. Fenster: ca. noch 12 Monate bis die Haushaltslinien festgezurrt sind.
+
+**Bis 23. April:**
+→ **Audi BKK / Dr. Schramm auf Radar setzen.** Seit Mai 2025 im Amt – falls noch kein Kontakt hergestellt wurde, ist jetzt der letzte Moment
