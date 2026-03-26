@@ -40,7 +40,7 @@ except ImportError:
 from kassen import KASSEN
 
 BATCH_SIZE = 1          # Eine Kasse pro API-Call (verhindert parallele Search-Floods)
-MAX_SEARCHES = 3        # 3 gezielte Suchen pro Kasse (News + Ausschreibungen + LinkedIn)
+MAX_SEARCHES = 2        # 2 gezielte Suchen pro Kasse (News/Personal + Ausschreibungen/LinkedIn)
 BATCH_PAUSE = 20        # Sekunden Pause zwischen Calls (Rate-Limit-Reset)
 MAX_RETRIES = 2         # Wiederholungsversuche bei Fehler
 API_TIMEOUT = 180       # Timeout pro API-Call in Sekunden (3 Min max)
@@ -157,15 +157,11 @@ def research_batch(client: anthropic.Anthropic, batch: list[dict], tage: int) ->
 
 **{k['name']}** | {k['url']}
 
-Führe genau 3 Web-Suchen durch:
-1. "{k['name']} Vorstand Wechsel Stellenabbau KI Automatisierung 2025 2026"
-   → Personalwechsel, Stellenabbau, konkrete IT/KI-Projekte
-2. "{k['name']} Ausschreibung ted.europa.eu Vergabe 2025 2026"
-   → TED-Ausschreibungen >1 Mio €, öffentliche Vergaben
-3. "{k['linkedin_search']} site:linkedin.com Vorstand Leiter Geschäftsbereich Abteilungsleiter"
-   → LinkedIn-Posts von C-Level, Geschäftsbereichsleitern, Abteilungsleitern
-   → BESONDERS relevant: Posts zu Projektstarts/-abschlüssen, Strategiewechseln,
-     Digitalisierungserfolgen, Personalaufbau/-abbau, Meinungen zu Branchenthemen
+Führe genau 2 Web-Suchen durch:
+1. "{k['name']} Vorstand Wechsel Stellenabbau KI Automatisierung LinkedIn 2025 2026"
+   → Personalwechsel, Stellenabbau, KI-Projekte, LinkedIn-Posts von Entscheidern
+2. "{k['name']} Ausschreibung ted.europa.eu Vergabe site:linkedin.com {k['linkedin_search']} 2025 2026"
+   → TED-Ausschreibungen >1 Mio €, LinkedIn-Posts zu Projekten/Strategie
 
 NUR berichten wenn echte Highlights gefunden:
 - Personalwechsel im Vorstand/C-Level/Bereichsleitung (wer kommt, wer geht)
