@@ -26,6 +26,7 @@ import requests as req
 import smtplib
 import sys
 import time
+import urllib.parse
 from datetime import date, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -211,6 +212,103 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# LinkedIn & RSS-Feed Scraping
+# ---------------------------------------------------------------------------
+
+def scrape_linkedin_rss(kassen: list[dict], tage: int) -> str:
+    """Scraped LinkedIn-Posts via Google News RSS und direkte LinkedIn-Unternehmensseiten.
+
+    Nutzt feedparser + BeautifulSoup für öffentlich zugängliche Inhalte.
+    Kein LinkedIn-Account oder API-Key erforderlich.
+    Gibt einen Markdown-Block zurück der als zusätzlicher Kontext in den Newsletter fließt.
+    """
+    try:
+        import feedparser
+        from bs4 import BeautifulSoup
+    except ImportError:
+        print("   ⚠️  feedparser/beautifulsoup4 nicht installiert – LinkedIn-RSS übersprungen.")
+        return ""
+
+    today = date.today()
+    cutoff = today - timedelta(days=tage)
+
+    HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+    }
+
+    all_findings: list[str] = []
+
+    for kasse in kassen:
+        company = kasse["linkedin_search"]
+        company_findings: list[str] = []
+
+        # 1. Google News RSS – sucht nach LinkedIn-Posts dieser Kasse
+        for query in [
+            f'site:linkedin.com/posts "{company}"',
+            f'"{company}" linkedin.com Vorstand CIO Digitalisierung',
+        ]:
+            rss_url = (
+                "https://news.google.com/rss/search?q="
+                + urllib.parse.quote(query)
+                + "&hl=de&gl=DE&ceid=DE:de"
+            )
+            try:
+                feed = feedparser.parse(rss_url)
+                for entry in (feed.entries or [])[:8]:
+                    # Datumsfilter
+                    pub = entry.get("published_parsed")
+                    if pub:
+                        pub_date = date(pub[0], pub[1], pub[2])
+                        if pub_date < cutoff:
+                            continue
+                    link = entry.get("link", "")
+                    title = entry.get("title", "").strip()
+                    # Nur LinkedIn-Links oder Branchennews interessant
+                    if title and link:
+                        company_findings.append(
+                            f"  - {title} → {link}"
+                        )
+            except Exception:
+                pass
+
+        # 2. Direkte LinkedIn-Unternehmensseite (öffentliche Meta-Tags)
+        #    Extrahiert og:description ohne Login möglich, Rate-Limit beachten
+        linkedin_slug = company.lower().replace(" ", "-").replace("(", "").replace(")", "")
+        linkedin_url = f"https://www.linkedin.com/company/{linkedin_slug}/posts/"
+        try:
+            resp = req.get(linkedin_url, headers=HEADERS, timeout=10, allow_redirects=True)
+            if resp.status_code == 200 and "linkedin" in resp.url:
+                soup = BeautifulSoup(resp.text, "html.parser")
+                og_desc = soup.find("meta", property="og:description")
+                og_title = soup.find("meta", property="og:title")
+                if og_desc and og_desc.get("content"):
+                    desc = og_desc["content"][:300]
+                    title_txt = og_title["content"] if og_title else company
+                    company_findings.append(
+                        f"  - [LinkedIn-Seite] {title_txt}: {desc} → {linkedin_url}"
+                    )
+        except Exception:
+            pass
+
+        if company_findings:
+            all_findings.append(f"**{kasse['short']}** (LinkedIn/RSS):")
+            all_findings.extend(company_findings[:5])  # Max 5 pro Kasse
+            all_findings.append("")
+
+    if not all_findings:
+        return ""
+
+    lines = ["## 📣 LinkedIn-RSS-Findings (automatisch gescraped)\n"]
+    lines.extend(all_findings)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Kern-Funktion: Einen Batch Kassen recherchieren
 # ---------------------------------------------------------------------------
 
@@ -229,20 +327,31 @@ def research_batch(client: anthropic.Anthropic, batch: list[dict], tage: int) ->
 
 **{k['name']}** | {k['url']}
 
-Führe genau 2 Web-Suchen durch:
-1. site:linkedin.com "{k['name']}" Vorstand Leiter Digitalisierung IT 2026
-   → LinkedIn-Posts von Führungskräften dieser Kasse: Was schreiben Vorstände, CIOs,
-     Bereichsleiter? Projekte, Strategien, Meinungen, Projektstarts/-abschlüsse.
-     Suche auch nach: {k['linkedin_search']} linkedin.com/posts
-2. "{k['name']}" Stellenabbau KI Automatisierung Ausschreibung Fusion März 2026
-   → Personalabbau, KI/Automatisierungsprojekte, Fusionsgerüchte, aktuelle News
+SCHWERPUNKT: LinkedIn! Führe genau 2 Web-Suchen durch:
 
-STRIKTE ZEITREGEL: NUR Ereignisse und Posts aus {period_start} – {period_end}.
-Personalwechsel die VOR {period_start} stattfanden: IGNORIEREN.
-Der Leser kennt alle Vorstandsänderungen aus 2025 bereits persönlich.
+1. LINKEDIN-FOKUS (Hauptsuche – größter Abschnitt im Output):
+   site:linkedin.com/posts "{k['linkedin_search']}"
+   → Finde LinkedIn-Posts von Führungskräften: Vorstände, CIOs, Bereichsleiter Digital/IT.
+     Was schreiben sie konkret? Projektabschlüsse, neue Partnerschaften, Strategieankündigungen,
+     persönliche Einblicke in laufende Projekte.
+     Berichte ausführlich: Wer hat gepostet (Name, Titel), Kernaussage des Posts,
+     Reaktionen/Kommentare, warum strategisch relevant für IT-Vertrieb.
+
+2. NEWS + PERSONALIEN (Ergänzung):
+   "{k['name']}" (Stellenabbau OR KI OR Automatisierung OR Fusion OR Personalwechsel) 2026
+   → Aktuelle Branchennews ausserhalb LinkedIn, Personalveränderungen im Zeitfenster,
+     KI-Projekte, Fusionsgerüchte.
+
+STRIKTE ZEITREGEL: NUR Ereignisse und Posts, die zwischen {period_start} und {period_end} erstmals
+gemeldet oder veröffentlicht wurden. Alles davor: VOLLSTÄNDIG IGNORIEREN.
+Das gilt insbesondere für:
+- Alle Vorstandsänderungen aus 2025 (bekannt)
+- Wechsel zum 1.1.2026 oder 1.4.2026 (bekannt)
+- Wechsel bei hkk, Pronova BKK, BAHN-BKK (alle Personalien dort bekannt)
+Nur echte Neuigkeiten INNERHALB {period_start}–{period_end} sind relevant.
 
 NUR berichten bei echten Findings im Zeitfenster:
-- LinkedIn-Posts von Kassenentscheidern: Inhalt + strategische Einordnung für IT-Vertrieb
+- LinkedIn-Posts von Kassenentscheidern (HÖCHSTE PRIORITÄT – ausführlich berichten)
 - Personalwechsel INNERHALB {period_start}–{period_end} (offiziell bestätigt, neu gemeldet)
 - Stellenabbau, Fusionsgerüchte, politische Konflikte
 - Konkrete KI/Automatisierungsprojekte (Go-Live, Partnerschaft, Ausschreibung)
@@ -343,10 +452,11 @@ ROHDATEN DIESER WOCHE:
 {last_week_block}
 REGELN:
 - KEINEN Titel, KEINE Überschrift "KassenInfodienst" ausgeben – das macht der Header automatisch
-- Beginne direkt mit dem ersten Abschnitt (z.B. ## 📣 LinkedIn-Radar)
+- Beginne IMMER mit ## 📣 LinkedIn-Radar als erstem und größtem Abschnitt (mind. 40% des Textes)
 - "KEINE_HIGHLIGHTS"-Einträge komplett ignorieren
+- KEINE Vorstandsänderungen die vor dem Recherchezeitraum stattfanden – diese sind bekannt
 - Keine Wiederholungen aus der letzten Woche – außer bei echter Entwicklung
-- Schwerpunkt: LinkedIn-Posts von Kassenentscheidern (größter Abschnitt)
+- LinkedIn-Posts absolut priorisieren: ausführlich berichten (Autor, Titel, Kernaussage, Engagement, Einordnung)
 - Tonalität: DFG-Branchenbrief, prägnant, meinungsstark, personalisiert
 - Max. 800 Wörter gesamt – Qualität über Quantität
 - Am Ende: 3–5 terminierte Action Items
@@ -570,8 +680,8 @@ def send_email(report_path: Path, summary: str, today: date) -> None:
     )
     msg.attach(MIMEText(plain, "plain", "utf-8"))
 
-    # HTML-E-Mail (vollständiger gerenderter Bericht)
-    html = build_html_email(report_content, today)
+    # HTML-E-Mail (nur summary, ohne Markdown-Header – vermeidet doppelten Titel)
+    html = build_html_email(summary or report_content, today)
     msg.attach(MIMEText(html, "html", "utf-8"))
 
     print(f"📧 Sende HTML-E-Mail an {recipient} ...")
@@ -734,6 +844,17 @@ def main() -> None:
         if idx < len(batches):
             print(f"   ⏳ Pause {BATCH_PAUSE}s ...")
             time.sleep(BATCH_PAUSE)
+
+    # LinkedIn RSS-Feeds scrapen (zusätzliche Quelle, parallel zum Web-Search)
+    print("🔗 LinkedIn RSS-Feeds scrapen ...")
+    linkedin_rss = scrape_linkedin_rss(kassen, args.tage)
+    if linkedin_rss:
+        lines_count = linkedin_rss.count("\n- ") + linkedin_rss.count("\n  - ")
+        print(f"   ✅ {lines_count} LinkedIn/RSS-Findings gesammelt.")
+        all_research_parts.insert(0, linkedin_rss)
+    else:
+        print("   ℹ️  Keine LinkedIn-RSS-Findings im Zeitraum.")
+    print()
 
     # Newsletter zusammensetzen – TED-Daten voranstellen
     if ted_section:
