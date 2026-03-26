@@ -45,6 +45,7 @@ BATCH_PAUSE = 20        # Sekunden Pause zwischen Calls (Rate-Limit-Reset)
 MAX_RETRIES = 2         # Wiederholungsversuche bei Fehler
 API_TIMEOUT = 180       # Timeout pro API-Call in Sekunden (3 Min max)
 LAST_WEEK_FILE = Path("last_week.md")   # Gedächtnis: was letzte Woche berichtet wurde
+REPORTS_DIR = Path("reports")
 
 
 # ---------------------------------------------------------------------------
