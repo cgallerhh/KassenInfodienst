@@ -20,6 +20,7 @@ Verwendung:
 
 import anthropic
 import argparse
+import httpx
 import os
 import smtplib
 import sys
@@ -38,10 +39,11 @@ except ImportError:
 
 from kassen import KASSEN
 
-BATCH_SIZE = 3          # Kassen pro Claude-Aufruf
-MAX_SEARCHES = 4        # Web-Suchen pro Batch (weniger = weniger Rate-Limits)
-BATCH_PAUSE = 10        # Sekunden Pause zwischen Batches
+BATCH_SIZE = 1          # Eine Kasse pro API-Call (verhindert parallele Search-Floods)
+MAX_SEARCHES = 2        # 2 gezielte Suchen pro Kasse (reicht für gute Abdeckung)
+BATCH_PAUSE = 20        # Sekunden Pause zwischen Calls (Rate-Limit-Reset)
 MAX_RETRIES = 2         # Wiederholungsversuche bei Fehler
+API_TIMEOUT = 180       # Timeout pro API-Call in Sekunden (3 Min max)
 REPORTS_DIR = Path("reports")
 
 
@@ -102,46 +104,45 @@ Schreibe auf Deutsch. Sei präzise und faktenbasiert. Vermeide allgemeine Floske
 # ---------------------------------------------------------------------------
 
 def research_batch(client: anthropic.Anthropic, batch: list[dict], tage: int) -> str:
-    """Recherchiert einen Batch von Krankenkassen mittels Claude + Web Search."""
+    """Recherchiert eine einzelne Krankenkasse mittels Claude + Web Search."""
 
     today = date.today()
     period_start = (today - timedelta(days=tage)).strftime("%d.%m.%Y")
     period_end = today.strftime("%d.%m.%Y")
 
-    kassen_liste = "\n".join(
-        f"- **{k['name']}** | Website: {k['url']} | LinkedIn-Suche: \"{k['linkedin_search']}\""
-        for k in batch
-    )
+    # Für Einzelkasse optimierter Prompt (BATCH_SIZE=1)
+    k = batch[0] if len(batch) == 1 else None
 
-    user_prompt = f"""Recherchiere aktuelle Informationen (Zeitraum: {period_start} – {period_end}) für folgende Krankenkassen:
+    if k:
+        user_prompt = f"""Recherchiere aktuelle Informationen (Zeitraum: {period_start} – {period_end}) für:
+
+**{k['name']}** | Website: {k['url']}
+
+Führe genau 2 Web-Suchen durch:
+1. Suche: "{k['name']} Vorstand IT Digitalisierung 2025 2026"
+   (deckt ab: Personalwechsel, IT-Projekte, Digitalisierungsvorhaben)
+2. Suche: "{k['name']} Ausschreibung Beitragssatz Finanzen 2025 2026"
+   (deckt ab: TED-Vergaben, Haushalt, Finanznachrichten)
+
+Erstelle die vollständige Analyse im vorgegebenen Format.
+Wenn du für einen Bereich nichts findest, vermerke das kurz."""
+    else:
+        kassen_liste = "\n".join(
+            f"- **{ki['name']}** | Website: {ki['url']}"
+            for ki in batch
+        )
+        user_prompt = f"""Recherchiere aktuelle Informationen (Zeitraum: {period_start} – {period_end}) für:
 
 {kassen_liste}
 
-Suche für JEDE dieser Kassen nach:
-
-1. **Personal**: Vorstandswechsel, neue Führungskräfte, CEO/CIO/CTO-Änderungen
-   → Suche: "[Kassenname] Vorstand", "[Kassenname] Geschäftsführung 2025 2026"
-
-2. **IT-Vorhaben**: Digitalisierungsprojekte, neue IT-Systeme, Cloud-Projekte, eHealth
-   → Suche: "[Kassenname] IT Digitalisierung", "[Kassenname] Ausschreibung Software"
-
-3. **Haushaltsplanung**: Beitragssatz, Finanznachrichten, Haushalt, Investitionen
-   → Suche: "[Kassenname] Beitragssatz 2025 2026", "[Kassenname] Finanzen"
-
-4. **TED-Ausschreibungen**: Öffentliche Vergaben auf ted.europa.eu
-   → Suche: "[Kassenname] ted.europa.eu", "[Kassenname] Vergabe Ausschreibung"
-
-5. **LinkedIn**: Posts von Entscheidern (Vorstände, CIO, Bereichsleiter Digital)
-   → Suche: "[Kassenname] site:linkedin.com", "[LinkedIn-Suche aus Liste]"
-
-Erstelle für JEDE Kasse eine vollständige Analyse im vorgegebenen Format.
-Wenn du für eine Kasse keine Informationen findest, vermerke das klar."""
+Führe maximal {MAX_SEARCHES} gezielte Web-Suchen durch.
+Erstelle für jede Kasse die vollständige Analyse im vorgegebenen Format."""
 
     full_text = ""
 
     with client.messages.stream(
         model="claude-sonnet-4-6",
-        max_tokens=5000,
+        max_tokens=3000,
         system=system_prompt_with_cache(SYSTEM_PROMPT),
         tools=[
             {
@@ -151,11 +152,11 @@ Wenn du für eine Kasse keine Informationen findest, vermerke das klar."""
             }
         ],
         messages=[{"role": "user", "content": user_prompt}],
+        timeout=API_TIMEOUT,
     ) as stream:
-        # Zeige Fortschritt während Claude recherchiert
         for text in stream.text_stream:
             print(text, end="", flush=True)
-        print()  # Zeilenumbruch nach dem Stream
+        print()
 
         final_message = stream.get_final_message()
         for block in final_message.content:
@@ -552,6 +553,14 @@ def main() -> None:
             try:
                 research = research_batch(client, batch, args.tage)
                 break
+            except (httpx.TimeoutException, httpx.ReadTimeout) as e:
+                print(f"   ⏰ Timeout nach {API_TIMEOUT}s (Versuch {attempt}): {e}", file=sys.stderr)
+                if attempt <= MAX_RETRIES:
+                    wait = 30 * attempt
+                    print(f"   ⏳ Warte {wait}s vor Wiederholung ...", file=sys.stderr)
+                    time.sleep(wait)
+                else:
+                    research = f"\n> ⚠️ {batch_names}: Timeout nach {MAX_RETRIES + 1} Versuchen.\n"
             except Exception as e:
                 if attempt <= MAX_RETRIES:
                     wait = 30 * attempt
@@ -559,8 +568,8 @@ def main() -> None:
                     print(f"   ⏳ Warte {wait}s vor Wiederholung ...", file=sys.stderr)
                     time.sleep(wait)
                 else:
-                    print(f"   ❌ Batch {idx} nach {MAX_RETRIES + 1} Versuchen fehlgeschlagen: {e}", file=sys.stderr)
-                    research = f"\n> ⚠️ Batch {idx} ({batch_names}) konnte nicht abgerufen werden.\n"
+                    print(f"   ❌ {batch_names} nach {MAX_RETRIES + 1} Versuchen fehlgeschlagen: {e}", file=sys.stderr)
+                    research = f"\n> ⚠️ {batch_names} konnte nicht abgerufen werden.\n"
 
         all_research_parts.append(research)
 
