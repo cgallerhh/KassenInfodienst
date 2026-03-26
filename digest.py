@@ -42,7 +42,7 @@ except ImportError:
 from kassen import KASSEN
 
 BATCH_SIZE = 1          # Eine Kasse pro API-Call (verhindert parallele Search-Floods)
-MAX_SEARCHES = 2        # 2 gezielte Suchen pro Kasse (News/Personal + Ausschreibungen/LinkedIn)
+MAX_SEARCHES = 3        # 3 gezielte Suchen pro Kasse
 BATCH_PAUSE = 8         # Sekunden Pause zwischen Calls (kurz halten – Rate-Limit reset ist schnell)
 MAX_RETRIES = 1         # Nur 1 Wiederholung (spart Zeit bei Fehlern)
 API_TIMEOUT = 90        # Timeout pro API-Call in Sekunden – bei Hänger schnell abbrechen
@@ -345,40 +345,34 @@ def research_batch(client: anthropic.Anthropic, batch: list[dict], tage: int) ->
     k = batch[0] if len(batch) == 1 else None
 
     if k:
-        user_prompt = f"""Recherchiere Highlights strikt innerhalb: {period_start} – {period_end}
+        user_prompt = f"""Recherchiere Highlights für: **{k['name']}** | {k['url']}
+Suchfenster: {period_start} – {period_end}
 
-**{k['name']}** | {k['url']}
+Führe genau 3 Web-Suchen durch:
 
-SCHWERPUNKT: LinkedIn! Führe genau 2 Web-Suchen durch:
+SUCHE 1 – LinkedIn (Personen):
+site:linkedin.com "{k['linkedin_search']}" Vorstand OR CIO OR Bereichsleiter OR Digitalisierung 2026
+→ KEIN after:-Filter! Google indexiert LinkedIn-Posts verzögert (Wochen bis Monate).
+  Suche nach Posts von Führungskräften zu: Projekten, Strategien, Partnerschafts-Ankündigungen.
+  Bewerte jeden Fund: Ist das Datum des Posts im Suchfenster {period_start}–{period_end}?
+  Wenn ja → ausführlich berichten. Wenn nein → ignorieren.
 
-1. LINKEDIN-FOKUS (Hauptsuche – größter Abschnitt im Output):
-   site:linkedin.com/posts "{k['linkedin_search']}" after:{after_date}
-   → Finde LinkedIn-Posts von Führungskräften seit {period_start}: Vorstände, CIOs, Bereichsleiter Digital/IT.
-     Was schreiben sie konkret? Projektabschlüsse, neue Partnerschaften, Strategieankündigungen,
-     persönliche Einblicke in laufende Projekte.
-     Berichte ausführlich: Wer hat gepostet (Name, Titel), Kernaussage des Posts,
-     Reaktionen/Kommentare, warum strategisch relevant für IT-Vertrieb.
+SUCHE 2 – LinkedIn (Unternehmensseite):
+site:linkedin.com/company "{k['linkedin_search']}"
+→ Unternehmensseite der Kasse auf LinkedIn: aktuelle Company-Posts, Ankündigungen,
+  neue Mitarbeiter-Highlights, Events. Datum prüfen wie Suche 1.
 
-2. NEWS + PERSONALIEN (Ergänzung):
-   "{k['name']}" (Stellenabbau OR KI OR Automatisierung OR Fusion OR Personalwechsel) after:{after_date}
-   → Aktuelle Branchennews seit {period_start}, Personalveränderungen im Zeitfenster,
-     KI-Projekte, Fusionsgerüchte.
+SUCHE 3 – Aktuelle News:
+"{k['name']}" (KI OR Automatisierung OR Fusion OR Stellenabbau OR Ausschreibung OR Personalwechsel) after:{after_date}
+→ Nachrichten und Pressemeldungen SEIT {period_start}. after:-Operator greift hier zuverlässig.
 
-STRIKTE ZEITREGEL: NUR Ereignisse und Posts, die zwischen {period_start} und {period_end} erstmals
-gemeldet oder veröffentlicht wurden. Alles davor: VOLLSTÄNDIG IGNORIEREN.
-Das gilt insbesondere für:
-- Alle Vorstandsänderungen aus 2025 (bekannt)
-- Wechsel zum 1.1.2026 oder 1.4.2026 (bekannt)
-- Wechsel bei hkk, Pronova BKK, BAHN-BKK (alle Personalien dort bekannt)
-Nur echte Neuigkeiten INNERHALB {period_start}–{period_end} sind relevant.
+ZEITREGEL: Nur Inhalte aus {period_start}–{period_end} berichten.
+Bekannte Vorstandsänderungen (2025, 1.1.2026, 1.4.2026, hkk/Pronova/BAHN-BKK): IGNORIEREN.
 
-NUR berichten bei echten Findings im Zeitfenster:
-- LinkedIn-Posts von Kassenentscheidern (HÖCHSTE PRIORITÄT – ausführlich berichten)
-- Personalwechsel INNERHALB {period_start}–{period_end} (offiziell bestätigt, neu gemeldet)
-- Stellenabbau, Fusionsgerüchte, politische Konflikte
-- Konkrete KI/Automatisierungsprojekte (Go-Live, Partnerschaft, Ausschreibung)
-
-Wenn NICHTS im Zeitfenster: nur "KEINE_HIGHLIGHTS" ausgeben."""
+OUTPUT-PRIORITÄT:
+1. LinkedIn-Posts mit Datum im Suchfenster (ausführlich: Name, Titel, Inhalt, Reaktionen)
+2. Aktuelle News mit konkretem Neuigkeitswert
+3. Wenn gar nichts: nur "KEINE_HIGHLIGHTS" ausgeben."""
     else:
         kassen_liste = "\n".join(
             f"- **{ki['name']}** | {ki['url']}"
