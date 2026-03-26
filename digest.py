@@ -161,24 +161,17 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
     today = date.today()
     start_date = (today - timedelta(days=tage)).strftime("%Y%m%d")
 
-    # Alle Kassennamen als OR-Suche (ein einziger API-Call für alle 15)
-    # estimated-value-Filter in der Query weggelassen (TED v3 unterstützt >= nicht zuverlässig)
-    # → Wertfilter erfolgt nachgelagert in Python
-    name_parts = " OR ".join(f'buyer-name ~ "{k["name"]}"' for k in kassen)
-    query = (
-        f"({name_parts}) "
-        f"AND buyer-country = DEU "
-        f"AND publication-date >= {start_date}"
-    )
+    # Minimale Query: nur Land + Datum (Klammern/Sonderzeichen in Kassennamen
+    # können den TED-Query-Parser brechen → alle Textfilter in Python)
+    query = f"buyer-country = DEU AND publication-date >= {start_date}"
 
     payload = {
         "query": query,
         "fields": TED_FIELDS,
-        "limit": 100,
-        "scope": "ALL",
+        "limit": 250,
+        "scope": "ACTIVE",
         "paginationMode": "PAGE_NUMBER",
         "page": 1,
-        "checkQuerySyntax": False,
     }
 
     try:
@@ -187,15 +180,28 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
         data = resp.json()
     except Exception as e:
         print(f"   ⚠️  TED-API nicht erreichbar: {e}", file=sys.stderr)
-        return ""  # Kein Fehlertext in Newsletter – Abschnitt einfach weglassen
+        return ""
 
-    # Nachgelagert auf >1 Mio € filtern
+    # Alle Filter in Python: Kassennamen + Mindestwert
+    kassen_namen = {k["name"].lower() for k in kassen}
+    # Auch Kurzformen prüfen (z.B. "TK", "DAK")
+    kassen_shorts = {k["short"].lower() for k in kassen}
+    kassen_domains = {k["domain"].lower() for k in kassen}
+
+    def is_relevant_kasse(buyer: str) -> bool:
+        b = buyer.lower()
+        return (
+            any(name in b or b in name for name in kassen_namen)
+            or any(short in b.split() for short in kassen_shorts)
+        )
+
     notices = [
         n for n in data.get("notices", [])
         if (n.get("estimated-value") or 0) >= 1_000_000
+        and is_relevant_kasse(n.get("buyer-name") or "")
     ]
     if not notices:
-        return ""  # Nichts über 1 Mio € → kein Abschnitt im Newsletter
+        return ""
 
     # Ergebnisse formatieren (nach Kasse gruppiert)
     lines = ["## 💎 TED-Ausschreibungen >1 Mio € (via TED API)\n"]
