@@ -162,10 +162,11 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
     start_date = (today - timedelta(days=tage)).strftime("%Y%m%d")
 
     # Alle Kassennamen als OR-Suche (ein einziger API-Call für alle 15)
+    # estimated-value-Filter in der Query weggelassen (TED v3 unterstützt >= nicht zuverlässig)
+    # → Wertfilter erfolgt nachgelagert in Python
     name_parts = " OR ".join(f'buyer-name ~ "{k["name"]}"' for k in kassen)
     query = (
         f"({name_parts}) "
-        f"AND estimated-value >= 1000000 "
         f"AND buyer-country = DEU "
         f"AND publication-date >= {start_date}"
     )
@@ -188,9 +189,13 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
         print(f"   ⚠️  TED-API nicht erreichbar: {e}", file=sys.stderr)
         return ""  # Kein Fehlertext in Newsletter – Abschnitt einfach weglassen
 
-    notices = data.get("notices", [])
+    # Nachgelagert auf >1 Mio € filtern
+    notices = [
+        n for n in data.get("notices", [])
+        if (n.get("estimated-value") or 0) >= 1_000_000
+    ]
     if not notices:
-        return ""  # Nichts gefunden → kein Abschnitt im Newsletter
+        return ""  # Nichts über 1 Mio € → kein Abschnitt im Newsletter
 
     # Ergebnisse formatieren (nach Kasse gruppiert)
     lines = ["## 💎 TED-Ausschreibungen >1 Mio € (via TED API)\n"]
