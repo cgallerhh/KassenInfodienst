@@ -185,7 +185,8 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        return f"> ⚠️ TED-API nicht erreichbar: {e}\n"
+        print(f"   ⚠️  TED-API nicht erreichbar: {e}", file=sys.stderr)
+        return ""  # Kein Fehlertext in Newsletter – Abschnitt einfach weglassen
 
     notices = data.get("notices", [])
     if not notices:
@@ -477,6 +478,8 @@ REGELN:
 - Max. 800 Wörter gesamt – Qualität über Quantität
 - Am Ende: 3–5 terminierte Action Items
 - Falls wenig Neues: ehrlich sagen statt mit Altmeldungen auffüllen
+- Abschnitte die keine Daten haben: WEGLASSEN – niemals "nicht verfügbar" oder "technischer Fehler" schreiben
+- Keine Ausschreibungen in den Daten = kein Ausschreibungsabschnitt (nicht erklären warum)
 
 Schreibe auf Deutsch."""
 
