@@ -148,7 +148,8 @@ WICHTIG:
 TED_API = "https://api.ted.europa.eu/v3/notices/search"
 TED_FIELDS = [
     "publication-number", "notice-title", "buyer-name",
-    "cpv", "estimated-value", "publication-date", "notice-type",
+    "classification-cpv", "total-value", "estimated-value-proc",
+    "publication-date", "notice-type",
 ]
 
 
@@ -176,7 +177,9 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
 
     try:
         resp = req.post(TED_API, json=payload, timeout=20)
-        resp.raise_for_status()
+        if not resp.ok:
+            print(f"   ⚠️  TED-API Fehler {resp.status_code}: {resp.text[:500]}", file=sys.stderr)
+            return ""
         data = resp.json()
     except Exception as e:
         print(f"   ⚠️  TED-API nicht erreichbar: {e}", file=sys.stderr)
@@ -184,21 +187,39 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
 
     # Alle Filter in Python: Kassennamen + Mindestwert
     kassen_namen = {k["name"].lower() for k in kassen}
-    # Auch Kurzformen prüfen (z.B. "TK", "DAK")
     kassen_shorts = {k["short"].lower() for k in kassen}
-    kassen_domains = {k["domain"].lower() for k in kassen}
 
-    def is_relevant_kasse(buyer: str) -> bool:
-        b = buyer.lower()
+    def _buyer_str(buyer_field) -> str:
+        """buyer-name ist ein mehrsprachiges Objekt {"de": "...", "en": "..."} oder string."""
+        if isinstance(buyer_field, dict):
+            return " ".join(str(v) for v in buyer_field.values()).lower()
+        return str(buyer_field or "").lower()
+
+    def is_relevant_kasse(buyer_field) -> bool:
+        b = _buyer_str(buyer_field)
         return (
             any(name in b or b in name for name in kassen_namen)
             or any(short in b.split() for short in kassen_shorts)
         )
 
+    def _notice_value(n: dict) -> float:
+        """Liest den Wert aus total-value oder estimated-value-proc (beide können vorkommen)."""
+        tv = n.get("total-value")
+        if isinstance(tv, dict):
+            return float(tv.get("amount") or tv.get("value") or 0)
+        if isinstance(tv, (int, float)):
+            return float(tv)
+        ev = n.get("estimated-value-proc")
+        if isinstance(ev, dict):
+            return float(ev.get("amount") or ev.get("value") or 0)
+        if isinstance(ev, (int, float)):
+            return float(ev)
+        return 0.0
+
     notices = [
         n for n in data.get("notices", [])
-        if (n.get("estimated-value") or 0) >= 1_000_000
-        and is_relevant_kasse(n.get("buyer-name") or "")
+        if _notice_value(n) >= 1_000_000
+        and is_relevant_kasse(n.get("buyer-name"))
     ]
     if not notices:
         return ""
@@ -208,10 +229,11 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
     for n in notices:
         pub_num = n.get("publication-number", "")
         title   = (n.get("notice-title") or "Ohne Titel")
-        buyer   = (n.get("buyer-name") or "Unbekannt")
-        value   = n.get("estimated-value")
+        buyer   = _buyer_str(n.get("buyer-name")) or "Unbekannt"
+        value   = _notice_value(n)
         pub_dt  = n.get("publication-date", "")
-        cpvs    = ", ".join(n.get("cpv") or [])
+        cpv_raw = n.get("classification-cpv") or []
+        cpvs    = ", ".join(str(c) for c in cpv_raw) if cpv_raw else ""
         url     = f"https://ted.europa.eu/en/notice/{pub_num}"
 
         value_str = f"ca. {value/1_000_000:.1f} Mio €" if value else "Volumen unbekannt"
