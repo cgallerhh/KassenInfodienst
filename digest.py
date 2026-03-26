@@ -336,8 +336,10 @@ def research_batch(client: anthropic.Anthropic, batch: list[dict], tage: int) ->
     """Recherchiert eine einzelne Krankenkasse mittels Claude + Web Search."""
 
     today = date.today()
-    period_start = (today - timedelta(days=tage)).strftime("%d.%m.%Y")
+    cutoff = today - timedelta(days=tage)
+    period_start = cutoff.strftime("%d.%m.%Y")
     period_end = today.strftime("%d.%m.%Y")
+    after_date = cutoff.strftime("%Y-%m-%d")   # für Google after:-Operator
 
     # Für Einzelkasse optimierter Prompt (BATCH_SIZE=1)
     k = batch[0] if len(batch) == 1 else None
@@ -350,16 +352,16 @@ def research_batch(client: anthropic.Anthropic, batch: list[dict], tage: int) ->
 SCHWERPUNKT: LinkedIn! Führe genau 2 Web-Suchen durch:
 
 1. LINKEDIN-FOKUS (Hauptsuche – größter Abschnitt im Output):
-   site:linkedin.com/posts "{k['linkedin_search']}"
-   → Finde LinkedIn-Posts von Führungskräften: Vorstände, CIOs, Bereichsleiter Digital/IT.
+   site:linkedin.com/posts "{k['linkedin_search']}" after:{after_date}
+   → Finde LinkedIn-Posts von Führungskräften seit {period_start}: Vorstände, CIOs, Bereichsleiter Digital/IT.
      Was schreiben sie konkret? Projektabschlüsse, neue Partnerschaften, Strategieankündigungen,
      persönliche Einblicke in laufende Projekte.
      Berichte ausführlich: Wer hat gepostet (Name, Titel), Kernaussage des Posts,
      Reaktionen/Kommentare, warum strategisch relevant für IT-Vertrieb.
 
 2. NEWS + PERSONALIEN (Ergänzung):
-   "{k['name']}" (Stellenabbau OR KI OR Automatisierung OR Fusion OR Personalwechsel) 2026
-   → Aktuelle Branchennews ausserhalb LinkedIn, Personalveränderungen im Zeitfenster,
+   "{k['name']}" (Stellenabbau OR KI OR Automatisierung OR Fusion OR Personalwechsel) after:{after_date}
+   → Aktuelle Branchennews seit {period_start}, Personalveränderungen im Zeitfenster,
      KI-Projekte, Fusionsgerüchte.
 
 STRIKTE ZEITREGEL: NUR Ereignisse und Posts, die zwischen {period_start} und {period_end} erstmals
