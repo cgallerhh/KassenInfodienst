@@ -383,11 +383,11 @@ def build_html_email(report_content: str, today: date) -> str:
 
 def send_email(report_path: Path, summary: str, today: date) -> None:
     """Sendet den Digest-Bericht als moderne HTML-E-Mail via Gmail SMTP."""
-    gmail_user = os.environ.get("GMAIL_USER")
-    gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
-    recipient = os.environ.get("RECIPIENT_EMAIL") or gmail_user
+    gmail_user = (os.environ.get("GMAIL_USER") or "").strip().replace("\xa0", "")
+    gmail_password = (os.environ.get("GMAIL_APP_PASSWORD") or "").strip().replace("\xa0", "")
+    recipient = (os.environ.get("RECIPIENT_EMAIL") or gmail_user).strip().replace("\xa0", "")
 
-    if not gmail_user or not gmail_password:
+    if not gmail_user or not gmail_password or len(gmail_password) < 8:
         print(
             "⚠️  E-Mail übersprungen: GMAIL_USER oder GMAIL_APP_PASSWORD fehlt in .env",
             file=sys.stderr,
