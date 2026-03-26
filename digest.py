@@ -44,7 +44,7 @@ MAX_SEARCHES = 2        # 2 gezielte Suchen pro Kasse (News/Personal + Ausschrei
 BATCH_PAUSE = 20        # Sekunden Pause zwischen Calls (Rate-Limit-Reset)
 MAX_RETRIES = 2         # Wiederholungsversuche bei Fehler
 API_TIMEOUT = 180       # Timeout pro API-Call in Sekunden (3 Min max)
-REPORTS_DIR = Path("reports")
+LAST_WEEK_FILE = Path("last_week.md")   # Gedächtnis: was letzte Woche berichtet wurde
 
 
 # ---------------------------------------------------------------------------
@@ -228,27 +228,55 @@ def system_prompt_with_cache(text: str) -> list[dict]:
 # Executive Summary
 # ---------------------------------------------------------------------------
 
+def load_last_week() -> str:
+    """Lädt den Newsletter der letzten Woche als Kontext (falls vorhanden)."""
+    if LAST_WEEK_FILE.exists():
+        return LAST_WEEK_FILE.read_text(encoding="utf-8")
+    return ""
+
+
+def save_last_week(newsletter: str, today: date) -> None:
+    """Speichert eine komprimierte Version des heutigen Newsletters als nächste-Woche-Gedächtnis."""
+    # Nur Kernaussagen, keine Formatierung – damit der Kontext nicht zu groß wird
+    memory = f"# Bereits berichtet – KW {today.isocalendar()[1]} ({today.strftime('%d.%m.%Y')})\n\n{newsletter[:4000]}\n"
+    LAST_WEEK_FILE.write_text(memory, encoding="utf-8")
+
+
 def generate_executive_summary(client: anthropic.Anthropic, all_research: str, today: date) -> str:
-    """Erstellt eine kompakte Executive Summary der wichtigsten Findings."""
+    """Erstellt den kuratierten Newsletter, filtert Wiederholungen aus der letzten Woche heraus."""
+
+    last_week = load_last_week()
+    last_week_block = ""
+    if last_week:
+        last_week_block = f"""
+BEREITS LETZTE WOCHE BERICHTET (NICHT WIEDERHOLEN):
+{last_week[:3000]}
+
+→ Meldungen die dort stehen: nur erwähnen wenn sich etwas WESENTLICH geändert hat
+  (z.B. Personalwechsel war angekündigt → jetzt vollzogen; Ausschreibung war offen → jetzt vergeben).
+  Sonst weglassen.
+"""
 
     prompt = f"""Du bist Chefredakteur des wöchentlichen GKV-Branchenbriefs "KassenInfodienst".
 Aus den folgenden Einzelrecherchen zu 15 Krankenkassen erstelle den fertigen Newsletter.
 
-ROHDATEN DER RECHERCHE:
-{all_research[:12000]}
-
+ROHDATEN DIESER WOCHE:
+{all_research[:10000]}
+{last_week_block}
 AUFGABE:
 Fasse die Highlights aller Kassen zu einem lesbaren, kuratierten Newsletter zusammen.
 Verwende das Format aus dem System-Prompt (Personalien, LinkedIn-Radar, Ausschreibungen,
 KI & Automatisierung, Flurfunk, Action Items).
 
 REGELN:
-- Abschnitte WEGLASSEN wenn keine relevanten Daten dafür vorliegen
 - "KEINE_HIGHLIGHTS"-Meldungen komplett ignorieren
+- Keine Wiederholungen aus der letzten Woche (s.o.) – außer bei echter Entwicklung
 - Doppelungen über Kassen hinweg zusammenfassen
 - Tonalität: DFG-Branchenbrief, prägnant, glossig, meinungsstark
 - Max. 800 Wörter – Qualität über Quantität
 - Am Ende: 3–5 terminierte Action Items für den Account Manager
+- Falls diese Woche tatsächlich wenig Neues passiert ist: kurz und ehrlich sagen,
+  statt mit Altmeldungen aufzufüllen
 
 Schreibe auf Deutsch."""
 
@@ -636,12 +664,19 @@ def main() -> None:
     summary = ""
     if not args.kein_summary and highlights_count > 0:
         print("📰 Erstelle Newsletter ...")
+        if LAST_WEEK_FILE.exists():
+            print("   📖 Letzte Woche geladen – filtere Wiederholungen ...")
 
         try:
             summary = generate_executive_summary(client, all_research, today)
         except anthropic.APIError as e:
             print(f"   ⚠️  Newsletter-Fehler: {e}", file=sys.stderr)
             summary = f"> ⚠️ Newsletter konnte nicht erstellt werden: {e}\n"
+
+        # Gedächtnis für nächste Woche speichern
+        if summary and "konnte nicht erstellt" not in summary:
+            save_last_week(summary, today)
+            print("   💾 Newsletter als nächste-Woche-Kontext gespeichert.")
 
         print("   ✅ Fertig.")
     elif highlights_count == 0:

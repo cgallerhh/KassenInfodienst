@@ -25,12 +25,15 @@ jobs:
   digest:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write   # Für git push von last_week.md
 
     steps:
       - name: Code auschecken
         uses: actions/checkout@v4
         with:
           ref: claude/health-insurance-news-digest-UlvZ8
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Python einrichten
         uses: actions/setup-python@v5
@@ -58,6 +61,19 @@ jobs:
           TAGE="${TAGE:-14}"
 
           python digest.py $KASSEN_ARG --tage "$TAGE" --email
+
+      - name: Gedächtnis (last_week.md) committen
+        if: success()
+        run: |
+          git config user.name "KassenInfodienst Bot"
+          git config user.email "actions@github.com"
+          if git diff --quiet last_week.md 2>/dev/null || [ ! -f last_week.md ]; then
+            echo "Kein Update nötig."
+          else
+            git add last_week.md
+            git commit -m "chore: last_week.md Update $(date +%Y-%m-%d)"
+            git push origin claude/health-insurance-news-digest-UlvZ8
+          fi
 
       - name: Bericht als Artefakt speichern
         if: always()
