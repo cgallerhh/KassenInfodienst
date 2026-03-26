@@ -32,7 +32,7 @@ jobs:
       - name: Code auschecken
         uses: actions/checkout@v4
         with:
-          ref: claude/health-insurance-news-digest-UlvZ8
+          ref: claude/fix-das-rendering-QAgeM
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Python einrichten
@@ -72,7 +72,7 @@ jobs:
           else
             git add last_week.md
             git commit -m "chore: last_week.md Update $(date +%Y-%m-%d)"
-            git push origin claude/health-insurance-news-digest-UlvZ8
+            git push origin claude/fix-das-rendering-QAgeM
           fi
 
       - name: Bericht als Artefakt speichern
