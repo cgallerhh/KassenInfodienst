@@ -38,9 +38,9 @@ except ImportError:
 
 from kassen import KASSEN
 
-BATCH_SIZE = 4          # Kassen pro Claude-Aufruf (reduziert für Stabilität)
-MAX_SEARCHES = 6        # Web-Suchen pro Batch
-BATCH_PAUSE = 15        # Sekunden Pause zwischen Batches (Search-Rate-Limit)
+BATCH_SIZE = 3          # Kassen pro Claude-Aufruf
+MAX_SEARCHES = 4        # Web-Suchen pro Batch (weniger = weniger Rate-Limits)
+BATCH_PAUSE = 10        # Sekunden Pause zwischen Batches
 MAX_RETRIES = 2         # Wiederholungsversuche bei Fehler
 REPORTS_DIR = Path("reports")
 
