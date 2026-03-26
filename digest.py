@@ -41,9 +41,9 @@ from kassen import KASSEN
 
 BATCH_SIZE = 1          # Eine Kasse pro API-Call (verhindert parallele Search-Floods)
 MAX_SEARCHES = 2        # 2 gezielte Suchen pro Kasse (News/Personal + Ausschreibungen/LinkedIn)
-BATCH_PAUSE = 20        # Sekunden Pause zwischen Calls (Rate-Limit-Reset)
-MAX_RETRIES = 2         # Wiederholungsversuche bei Fehler
-API_TIMEOUT = 180       # Timeout pro API-Call in Sekunden (3 Min max)
+BATCH_PAUSE = 8         # Sekunden Pause zwischen Calls (kurz halten – Rate-Limit reset ist schnell)
+MAX_RETRIES = 1         # Nur 1 Wiederholung (spart Zeit bei Fehlern)
+API_TIMEOUT = 90        # Timeout pro API-Call in Sekunden – bei Hänger schnell abbrechen
 LAST_WEEK_FILE = Path("last_week.md")   # Gedächtnis: was letzte Woche berichtet wurde
 REPORTS_DIR = Path("reports")
 
@@ -629,22 +629,17 @@ def main() -> None:
                 research = research_batch(client, batch, args.tage)
                 break
             except (httpx.TimeoutException, httpx.ReadTimeout) as e:
-                print(f"   ⏰ Timeout nach {API_TIMEOUT}s (Versuch {attempt}): {e}", file=sys.stderr)
+                print(f"   ⏰ Timeout (Versuch {attempt}) – überspringe", file=sys.stderr)
                 if attempt <= MAX_RETRIES:
-                    wait = 30 * attempt
-                    print(f"   ⏳ Warte {wait}s vor Wiederholung ...", file=sys.stderr)
-                    time.sleep(wait)
+                    time.sleep(15)
                 else:
-                    research = f"\n> ⚠️ {batch_names}: Timeout nach {MAX_RETRIES + 1} Versuchen.\n"
+                    research = ""  # Kasse einfach überspringen
             except Exception as e:
+                print(f"   ⚠️  Fehler (Versuch {attempt}): {e}", file=sys.stderr)
                 if attempt <= MAX_RETRIES:
-                    wait = 30 * attempt
-                    print(f"   ⚠️  Fehler (Versuch {attempt}): {e}", file=sys.stderr)
-                    print(f"   ⏳ Warte {wait}s vor Wiederholung ...", file=sys.stderr)
-                    time.sleep(wait)
+                    time.sleep(15)
                 else:
-                    print(f"   ❌ {batch_names} nach {MAX_RETRIES + 1} Versuchen fehlgeschlagen: {e}", file=sys.stderr)
-                    research = f"\n> ⚠️ {batch_names} konnte nicht abgerufen werden.\n"
+                    research = ""  # Kasse überspringen statt zu blockieren
 
         # Nur echte Highlights sammeln (KEINE_HIGHLIGHTS ignorieren)
         if research.strip() and "KEINE_HIGHLIGHTS" not in research:
