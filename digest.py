@@ -225,26 +225,29 @@ def research_batch(client: anthropic.Anthropic, batch: list[dict], tage: int) ->
     k = batch[0] if len(batch) == 1 else None
 
     if k:
-        user_prompt = f"""Recherchiere Highlights (Zeitraum: {period_start} – {period_end}) für:
+        user_prompt = f"""Recherchiere Highlights strikt innerhalb: {period_start} – {period_end}
 
 **{k['name']}** | {k['url']}
 
 Führe genau 2 Web-Suchen durch:
-1. "{k['name']} Vorstand Wechsel Stellenabbau KI Automatisierung LinkedIn 2025 2026"
-   → Personalwechsel, Stellenabbau, KI-Projekte, LinkedIn-Posts von Entscheidern
-2. "{k['name']} Ausschreibung ted.europa.eu Vergabe site:linkedin.com {k['linkedin_search']} 2025 2026"
-   → TED-Ausschreibungen >1 Mio €, LinkedIn-Posts zu Projekten/Strategie
+1. site:linkedin.com "{k['name']}" Vorstand Leiter Digitalisierung IT 2026
+   → LinkedIn-Posts von Führungskräften dieser Kasse: Was schreiben Vorstände, CIOs,
+     Bereichsleiter? Projekte, Strategien, Meinungen, Projektstarts/-abschlüsse.
+     Suche auch nach: {k['linkedin_search']} linkedin.com/posts
+2. "{k['name']}" Stellenabbau KI Automatisierung Ausschreibung Fusion März 2026
+   → Personalabbau, KI/Automatisierungsprojekte, Fusionsgerüchte, aktuelle News
 
-NUR berichten wenn echte Highlights gefunden:
-- Personalwechsel im Vorstand/C-Level/Bereichsleitung (wer kommt, wer geht)
-- LinkedIn-Posts von Entscheidern: Wer äußert sich wozu? Was verrät der Post
-  über die strategische Richtung der Kasse? Welche Relevanz für IT-Vertrieb?
-- TED-Ausschreibungen >1 Mio € Vertragslaufzeit
-- Konkrete KI/Automatisierungsprojekte (Go-Lives, Starts, Partner)
+STRIKTE ZEITREGEL: NUR Ereignisse und Posts aus {period_start} – {period_end}.
+Personalwechsel die VOR {period_start} stattfanden: IGNORIEREN.
+Der Leser kennt alle Vorstandsänderungen aus 2025 bereits persönlich.
+
+NUR berichten bei echten Findings im Zeitfenster:
+- LinkedIn-Posts von Kassenentscheidern: Inhalt + strategische Einordnung für IT-Vertrieb
+- Personalwechsel INNERHALB {period_start}–{period_end} (offiziell bestätigt, neu gemeldet)
 - Stellenabbau, Fusionsgerüchte, politische Konflikte
+- Konkrete KI/Automatisierungsprojekte (Go-Live, Partnerschaft, Ausschreibung)
 
-Wenn NICHTS Relevantes gefunden: Antworte nur mit "KEINE_HIGHLIGHTS".
-Keine Platzhalter, keine generischen Meldungen, kein ePA-Standardprogramm."""
+Wenn NICHTS im Zeitfenster: nur "KEINE_HIGHLIGHTS" ausgeben."""
     else:
         kassen_liste = "\n".join(
             f"- **{ki['name']}** | {ki['url']}"
@@ -301,16 +304,19 @@ def system_prompt_with_cache(text: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def load_last_week() -> str:
-    """Lädt den Newsletter der letzten Woche als Kontext (falls vorhanden)."""
-    if LAST_WEEK_FILE.exists():
-        return LAST_WEEK_FILE.read_text(encoding="utf-8")
-    return ""
+    """Lädt den Newsletter der letzten Woche als Kontext, bereinigt von Markdown-Headern."""
+    if not LAST_WEEK_FILE.exists():
+        return ""
+    raw = LAST_WEEK_FILE.read_text(encoding="utf-8")
+    # Markdown-Header entfernen damit Claude sie nicht in den neuen Newsletter kopiert
+    lines = [l for l in raw.splitlines() if not l.startswith("#")]
+    return "\n".join(lines).strip()
 
 
 def save_last_week(newsletter: str, today: date) -> None:
-    """Speichert eine komprimierte Version des heutigen Newsletters als nächste-Woche-Gedächtnis."""
-    # Nur Kernaussagen, keine Formatierung – damit der Kontext nicht zu groß wird
-    memory = f"# Bereits berichtet – KW {today.isocalendar()[1]} ({today.strftime('%d.%m.%Y')})\n\n{newsletter[:4000]}\n"
+    """Speichert den heutigen Newsletter als Gedächtnis für nächste Woche."""
+    # Header-Zeile ohne Markdown-Syntax damit load_last_week sie sauber verarbeitet
+    memory = f"Bereits berichtet KW {today.isocalendar()[1]} ({today.strftime('%d.%m.%Y')}):\n\n{newsletter[:4000]}\n"
     LAST_WEEK_FILE.write_text(memory, encoding="utf-8")
 
 
@@ -329,26 +335,22 @@ BEREITS LETZTE WOCHE BERICHTET (NICHT WIEDERHOLEN):
   Sonst weglassen.
 """
 
-    prompt = f"""Du bist Chefredakteur des wöchentlichen GKV-Branchenbriefs "KassenInfodienst".
-Aus den folgenden Einzelrecherchen zu 15 Krankenkassen erstelle den fertigen Newsletter.
+    prompt = f"""Du bist Chefredakteur des GKV-Branchenbriefs "KassenInfodienst".
+Erstelle den fertigen Newsletterinhalt aus den Rohdaten unten.
 
 ROHDATEN DIESER WOCHE:
 {all_research[:10000]}
 {last_week_block}
-AUFGABE:
-Fasse die Highlights aller Kassen zu einem lesbaren, kuratierten Newsletter zusammen.
-Verwende das Format aus dem System-Prompt (Personalien, LinkedIn-Radar, Ausschreibungen,
-KI & Automatisierung, Flurfunk, Action Items).
-
 REGELN:
-- "KEINE_HIGHLIGHTS"-Meldungen komplett ignorieren
-- Keine Wiederholungen aus der letzten Woche (s.o.) – außer bei echter Entwicklung
-- Doppelungen über Kassen hinweg zusammenfassen
-- Tonalität: DFG-Branchenbrief, prägnant, glossig, meinungsstark
-- Max. 800 Wörter – Qualität über Quantität
-- Am Ende: 3–5 terminierte Action Items für den Account Manager
-- Falls diese Woche tatsächlich wenig Neues passiert ist: kurz und ehrlich sagen,
-  statt mit Altmeldungen aufzufüllen
+- KEINEN Titel, KEINE Überschrift "KassenInfodienst" ausgeben – das macht der Header automatisch
+- Beginne direkt mit dem ersten Abschnitt (z.B. ## 📣 LinkedIn-Radar)
+- "KEINE_HIGHLIGHTS"-Einträge komplett ignorieren
+- Keine Wiederholungen aus der letzten Woche – außer bei echter Entwicklung
+- Schwerpunkt: LinkedIn-Posts von Kassenentscheidern (größter Abschnitt)
+- Tonalität: DFG-Branchenbrief, prägnant, meinungsstark, personalisiert
+- Max. 800 Wörter gesamt – Qualität über Quantität
+- Am Ende: 3–5 terminierte Action Items
+- Falls wenig Neues: ehrlich sagen statt mit Altmeldungen auffüllen
 
 Schreibe auf Deutsch."""
 
