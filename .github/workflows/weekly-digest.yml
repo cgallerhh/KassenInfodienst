@@ -72,6 +72,7 @@ jobs:
           else
             git add last_week.md
             git commit -m "chore: last_week.md Update $(date +%Y-%m-%d)"
+            git pull --rebase origin claude/health-insurance-news-digest-UlvZ8
             git push origin claude/health-insurance-news-digest-UlvZ8
           fi
 
