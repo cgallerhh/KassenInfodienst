@@ -22,6 +22,7 @@ import anthropic
 import argparse
 import httpx
 import os
+import requests as req
 import smtplib
 import sys
 import time
@@ -137,6 +138,76 @@ WICHTIG:
 - Qualität > Quantität. Lieber eine pointierte Meldung als zehn generische.
 - Immer Quellen/Links nennen wo verfügbar.
 - Schreibe auf Deutsch."""
+
+
+# ---------------------------------------------------------------------------
+# TED-Ausschreibungen (EU-Vergabeplattform, kostenlos, kein API-Key nötig)
+# ---------------------------------------------------------------------------
+
+TED_API = "https://api.ted.europa.eu/v3/notices/search"
+TED_FIELDS = [
+    "publication-number", "notice-title", "buyer-name",
+    "cpv", "estimated-value", "publication-date", "notice-type",
+]
+
+
+def search_ted_tenders(kassen: list[dict], tage: int) -> str:
+    """Sucht TED-Ausschreibungen >1 Mio € für alle Kassen in einem API-Call.
+
+    Gibt einen formatierten Markdown-Block zurück, der direkt in den Newsletter
+    als Kontext für den 'Ausschreibungen'-Abschnitt einfließt.
+    """
+    today = date.today()
+    start_date = (today - timedelta(days=tage)).strftime("%Y%m%d")
+
+    # Alle Kassennamen als OR-Suche (ein einziger API-Call für alle 15)
+    name_parts = " OR ".join(f'buyer-name ~ "{k["name"]}"' for k in kassen)
+    query = (
+        f"({name_parts}) "
+        f"AND estimated-value >= 1000000 "
+        f"AND buyer-country = DEU "
+        f"AND publication-date >= {start_date}"
+    )
+
+    payload = {
+        "query": query,
+        "fields": TED_FIELDS,
+        "limit": 100,
+        "scope": "ALL",
+        "paginationMode": "PAGE_NUMBER",
+        "page": 1,
+        "checkQuerySyntax": False,
+    }
+
+    try:
+        resp = req.post(TED_API, json=payload, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return f"> ⚠️ TED-API nicht erreichbar: {e}\n"
+
+    notices = data.get("notices", [])
+    if not notices:
+        return ""  # Nichts gefunden → kein Abschnitt im Newsletter
+
+    # Ergebnisse formatieren (nach Kasse gruppiert)
+    lines = ["## 💎 TED-Ausschreibungen >1 Mio € (via TED API)\n"]
+    for n in notices:
+        pub_num = n.get("publication-number", "")
+        title   = (n.get("notice-title") or "Ohne Titel")
+        buyer   = (n.get("buyer-name") or "Unbekannt")
+        value   = n.get("estimated-value")
+        pub_dt  = n.get("publication-date", "")
+        cpvs    = ", ".join(n.get("cpv") or [])
+        url     = f"https://ted.europa.eu/en/notice/{pub_num}"
+
+        value_str = f"ca. {value/1_000_000:.1f} Mio €" if value else "Volumen unbekannt"
+        lines.append(
+            f"- **{buyer}** | {title} | {value_str} | CPV: {cpvs} | {pub_dt}"
+            f"\n  🔗 [{pub_num}]({url})\n"
+        )
+
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -615,6 +686,16 @@ def main() -> None:
     print(f"   Ausgabe:   {output_path}")
     print()
 
+    # TED-Ausschreibungen vorab abrufen (1 API-Call für alle Kassen)
+    print("📋 TED-Ausschreibungen abrufen ...")
+    ted_section = search_ted_tenders(kassen, args.tage)
+    if ted_section:
+        count = ted_section.count("\n- ")
+        print(f"   ✅ {count} Ausschreibung(en) >1 Mio € gefunden.")
+    else:
+        print("   ℹ️  Keine TED-Ausschreibungen im Zeitraum gefunden.")
+    print()
+
     # Kassen in Batches aufteilen
     batches = [kassen[i : i + BATCH_SIZE] for i in range(0, len(kassen), BATCH_SIZE)]
     all_research_parts: list[str] = []
@@ -652,10 +733,12 @@ def main() -> None:
             print(f"   ⏳ Pause {BATCH_PAUSE}s ...")
             time.sleep(BATCH_PAUSE)
 
-    # Newsletter zusammensetzen
+    # Newsletter zusammensetzen – TED-Daten voranstellen
+    if ted_section:
+        all_research_parts.insert(0, ted_section)
     all_research = "\n\n".join(all_research_parts)
     highlights_count = len(all_research_parts)
-    print(f"\n📊 {highlights_count}/{len(kassen)} Kassen mit Highlights gefunden.")
+    print(f"\n📊 {highlights_count}/{len(kassen)} Quellen mit Highlights.")
 
     summary = ""
     if not args.kein_summary and highlights_count > 0:
