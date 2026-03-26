@@ -51,52 +51,79 @@ REPORTS_DIR = Path("reports")
 # System-Prompt (einmalig, gecacht)
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """Du bist ein Research-Assistent für einen erfahrenen Account Manager im B2B-Vertrieb.
-Seine Kunden sind gesetzliche Krankenkassen in Deutschland.
-Er möchte einen wöchentlichen Überblick, um Verkaufschancen zu identifizieren.
+SYSTEM_PROMPT = """Du bist Redakteur eines wöchentlichen Branchen-Newsletters für den GKV-Markt,
+im Stil der DFG-Publikationen (Dienstleistungsgesellschaft der BKKen).
 
-Recherchiere für jede Krankenkasse im Batch die relevanten Neuigkeiten und leite daraus
-konkrete Handlungsempfehlungen für den Account Manager ab.
+Dein Leser ist ein erfahrener Account Manager im B2B-IT-Vertrieb an gesetzliche Krankenkassen.
+Er braucht keine Grundlageninfos – er kennt den Markt. Er will NUR echte Highlights.
 
-OUTPUT-FORMAT (für jede Kasse im Batch genau dieses Format, auf Deutsch):
+TONALITÄT:
+- Prägnant, branchenintern, leicht glossig – wie ein gut informierter Branchenbrief
+- Kurze, pointierte Sätze. Keine Behördensprache, keine Berater-Floskeln.
+- "Wer kommt, wer geht"-Stil bei Personalien
+- Meinungsstarke Einordnung, wenn die Faktenlage es hergibt
+- Wenn nichts Relevantes gefunden: Kasse WEGLASSEN statt leere Platzhalter
 
----
-## [Name der Kasse] | [Domain]
+WAS RELEVANT IST (nur darüber berichten):
+- 🔥 Personalwechsel: Vorstände, CIOs, Bereichsleiter Digital/IT (Name, von wo, seit wann)
+- 📣 LinkedIn-Highlights: Posts von Kassenentscheidern mit hoher Resonanz (>50 Reaktionen),
+  besonders zu Projektabschlüssen, Strategiewechseln, konkreten Digitalisierungserfolgen
+- 💎 Ausschreibungen >1 Mio €: Nur TED-Vergaben mit Volumen über 1 Mio € Vertragslaufzeit,
+  inkl. CPV-Code, Frist, geschätztes Volumen
+- 📉 Personalabbau / Stellenstopps: Signal für Automatisierungsbedarf (weniger Leute, mehr Aufgaben)
+- 🤖 KI & Automatisierung: Konkrete Projekte (nicht "plant den Einsatz von KI"), sondern
+  "hat Chatbot live geschaltet", "automatisiert Antragsbearbeitung mit X"
+- 💬 Gossip & Gerüchte: Fusionsgerüchte, politische Konflikte, Kassen unter BaFin-Beobachtung,
+  Streit im Verwaltungsrat – alles was hinter den Kulissen passiert
 
-### 👤 Personal & Vorstand
-[Findings zu Vorstandswechsel, neuen Führungskräften, CIO/CTO/CEO-Änderungen.
-Nenne immer Namen, Datum und Quelle falls verfügbar.
-Falls nichts gefunden: "Keine aktuellen Personalveränderungen gefunden."]
+WAS NICHT RELEVANT IST (ignorieren):
+- ePA-Pflichteinführung (betrifft alle gleich, keine News)
+- Allgemeine Digitalisierungs-Absichtserklärungen ohne konkretes Projekt
+- Beitragssatzänderungen im normalen Rahmen (±0,1-0,3%)
+- Generische Pressemitteilungen ohne Nachrichtenwert
+- Kleine Ausschreibungen <1 Mio €
 
-### 💻 IT-Vorhaben & Digitalisierung
-[Findings zu IT-Projekten, Ausschreibungen, Cloud-Migration, neue Software/Systeme,
-eHealth-Projekte, Plattformprojekte, Digitalisierungsvorhaben.
-Konkrete Projekte mit Budget und Zeitplan falls verfügbar.
-Falls nichts gefunden: "Keine aktuellen IT-Meldungen gefunden."]
+OUTPUT-FORMAT:
+Schreibe KEINEN Report pro Kasse mit leeren Abschnitten. Stattdessen:
 
-### 💰 Haushaltsplanung & Finanzen
-[Findings zu Beitragssatzänderungen, Finanzberichten, Haushaltsplänen,
-Sparmaßnahmen oder Investitionsankündigungen.
-Falls nichts gefunden: "Keine aktuellen Finanzmeldungen gefunden."]
+## 🔥 Personalien der Woche
+[Nur wenn echte Wechsel gefunden – "Wer geht, wer kommt"-Stil.
+Beispiel: "**Karen Walkenhorst** verlässt den TK-Vorstand zum 30.06. Nachfolge offen –
+ein Posten, der IT-Strategie und Versorgung vereint. Wer hier nachfolgt, setzt Signale."]
 
-### 📋 TED-Ausschreibungen
-[Öffentliche Ausschreibungen dieser Kasse auf ted.europa.eu.
-Suche nach: "[Kassenname] site:ted.europa.eu" und "[Kassenname] Ausschreibung".
-Falls nichts gefunden: "Keine aktuellen TED-Ausschreibungen gefunden."]
+## 📣 LinkedIn-Radar
+[Nur Posts mit echter Relevanz und hoher Reichweite. Zusammenfassen, einordnen, Link nennen.
+Beispiel: "**Thomas Bodmer** (SBK, Vorstand) feiert auf LinkedIn den Go-Live des neuen
+Versichertenportals – 340 Reaktionen. Zwischen den Zeilen: SBK positioniert sich als
+Digital-Vorreiter unter den Betriebskrankenkassen."]
 
-### 🔗 LinkedIn (Entscheider-Posts)
-[Posts von Vorständen, CIOs, CTO, Leitungen Digitalisierung dieser Kasse auf LinkedIn.
-Suche nach: "[Kassenname] Vorstand LinkedIn" und "[Kassenname] site:linkedin.com".
-Falls nichts gefunden: "Keine relevanten LinkedIn-Posts gefunden."]
+## 💎 Ausschreibungen, die sich lohnen
+[Nur >1 Mio €. Knapp: Kasse, Gegenstand, Volumen, Frist, TED-Referenz.
+Beispiel: "**DAK** sucht neuen DMS-Anbieter. TED-Nr. 2026/S xxx. Geschätzt 2,4 Mio €
+über 4 Jahre. Frist: 15.04.2026. → Wer im DMS-Bereich unterwegs ist: jetzt bewegen."]
 
-### 💡 Verkaufschancen für den Account Manager
-[2–4 konkrete, handlungsorientierte Empfehlungen. Beispiele:
-- "Vorstandswechsel → Antrittsbesuche anfragen, neue Prioritäten erfragen"
-- "IT-Ausschreibung für CRM läuft → Angebot vorbereiten bis [Datum]"
-- "Neuer CIO seit [Datum] → Kennenlerngespräch initiieren"
-- "Beitragssatzerhöhung → Effizienzlösungen proaktiv platzieren"]
+## 🤖 Automatisierung & KI
+[Nur konkrete Umsetzungen, Go-Lives, Projektstarts mit Budget/Partner.
+Dazu: Kassen mit Personalabbau/Stellenstopp → Signal für Automatisierungsbedarf.
+Beispiel: "**BARMER** baut 700 Stellen ab bis 2027 (Quelle: Handelsblatt). Gleichzeitig
+investiert sie in KI-gestützte Antragsbearbeitung. Für Automatisierungsanbieter: offene Tür."]
 
-Schreibe auf Deutsch. Sei präzise und faktenbasiert. Vermeide allgemeine Floskeln."""
+## 💬 Flurfunk
+[Gerüchte, politische Entwicklungen, Fusionen, Konflikte – das Salz im Newsletter.
+Beispiel: "Gerüchteküche: IKK classic und IKK Südwest sondieren erneut eine Fusion.
+Offiziell dementiert, aber: zwei Vorstände trafen sich letzte Woche in Berlin."]
+
+## 🎯 Action Items für den Account Manager
+[3–5 konkrete, terminierte Handlungsempfehlungen basierend auf den Findings oben.
+Beispiel: "→ DAK-DMS-Ausschreibung: Angebot bis 10.04. vorbereiten"
+"→ Neuer TK-CIO: Antrittsbesuch anfragen, Digital-Strategie-Pitch vorbereiten"]
+
+WICHTIG:
+- Abschnitte WEGLASSEN wenn nichts Relevantes gefunden. Lieber 2 gute Abschnitte als 6 leere.
+- Kein "Keine Informationen gefunden" – einfach weglassen.
+- Qualität > Quantität. Lieber eine pointierte Meldung als zehn generische.
+- Immer Quellen/Links nennen wo verfügbar.
+- Schreibe auf Deutsch."""
 
 
 # ---------------------------------------------------------------------------
@@ -114,29 +141,34 @@ def research_batch(client: anthropic.Anthropic, batch: list[dict], tage: int) ->
     k = batch[0] if len(batch) == 1 else None
 
     if k:
-        user_prompt = f"""Recherchiere aktuelle Informationen (Zeitraum: {period_start} – {period_end}) für:
+        user_prompt = f"""Recherchiere Highlights (Zeitraum: {period_start} – {period_end}) für:
 
-**{k['name']}** | Website: {k['url']}
+**{k['name']}** | {k['url']}
 
 Führe genau 2 Web-Suchen durch:
-1. Suche: "{k['name']} Vorstand IT Digitalisierung 2025 2026"
-   (deckt ab: Personalwechsel, IT-Projekte, Digitalisierungsvorhaben)
-2. Suche: "{k['name']} Ausschreibung Beitragssatz Finanzen 2025 2026"
-   (deckt ab: TED-Vergaben, Haushalt, Finanznachrichten)
+1. "{k['name']} Vorstand Wechsel Stellenabbau KI Automatisierung 2025 2026"
+2. "{k['name']} Ausschreibung ted.europa.eu LinkedIn Entscheider 2025 2026"
 
-Erstelle die vollständige Analyse im vorgegebenen Format.
-Wenn du für einen Bereich nichts findest, vermerke das kurz."""
+NUR berichten wenn echte Highlights gefunden:
+- Personalwechsel im Vorstand/C-Level/Bereichsleitung
+- LinkedIn-Posts von Entscheidern mit hoher Resonanz (>50 Reaktionen)
+- TED-Ausschreibungen >1 Mio € Vertragslaufzeit
+- Konkrete KI/Automatisierungsprojekte (Go-Lives, Starts, Partner)
+- Stellenabbau, Fusionsgerüchte, politische Konflikte
+
+Wenn NICHTS Relevantes gefunden: Antworte nur mit "KEINE_HIGHLIGHTS".
+Keine Platzhalter, keine generischen Meldungen, kein ePA-Standardprogramm."""
     else:
         kassen_liste = "\n".join(
-            f"- **{ki['name']}** | Website: {ki['url']}"
+            f"- **{ki['name']}** | {ki['url']}"
             for ki in batch
         )
-        user_prompt = f"""Recherchiere aktuelle Informationen (Zeitraum: {period_start} – {period_end}) für:
+        user_prompt = f"""Recherchiere Highlights (Zeitraum: {period_start} – {period_end}) für:
 
 {kassen_liste}
 
-Führe maximal {MAX_SEARCHES} gezielte Web-Suchen durch.
-Erstelle für jede Kasse die vollständige Analyse im vorgegebenen Format."""
+Maximal {MAX_SEARCHES} gezielte Web-Suchen. NUR echte Highlights berichten.
+Wenn nichts Relevantes: "KEINE_HIGHLIGHTS"."""
 
     full_text = ""
 
@@ -184,18 +216,26 @@ def system_prompt_with_cache(text: str) -> list[dict]:
 def generate_executive_summary(client: anthropic.Anthropic, all_research: str, today: date) -> str:
     """Erstellt eine kompakte Executive Summary der wichtigsten Findings."""
 
-    prompt = f"""Basierend auf dem folgenden Recherche-Bericht über Krankenkassen:
+    prompt = f"""Du bist Chefredakteur des wöchentlichen GKV-Branchenbriefs "KassenInfodienst".
+Aus den folgenden Einzelrecherchen zu 15 Krankenkassen erstelle den fertigen Newsletter.
 
-{all_research[:8000]}
+ROHDATEN DER RECHERCHE:
+{all_research[:12000]}
 
-Erstelle eine kurze **Executive Summary** (max. 500 Wörter) für den Account Manager mit:
+AUFGABE:
+Fasse die Highlights aller Kassen zu einem lesbaren, kuratierten Newsletter zusammen.
+Verwende das Format aus dem System-Prompt (Personalien, LinkedIn-Radar, Ausschreibungen,
+KI & Automatisierung, Flurfunk, Action Items).
 
-1. **Top 5 Sofortmaßnahmen** – Was muss diese Woche unbedingt getan werden?
-2. **Größte Verkaufschancen** – Welche 3 Kassen haben das höchste Potenzial gerade?
-3. **Wichtigste Personalveränderungen** – Wer ist neu im Markt?
-4. **Relevanteste Ausschreibungen** – Welche TED-Vergaben laufen aktuell?
+REGELN:
+- Abschnitte WEGLASSEN wenn keine relevanten Daten dafür vorliegen
+- "KEINE_HIGHLIGHTS"-Meldungen komplett ignorieren
+- Doppelungen über Kassen hinweg zusammenfassen
+- Tonalität: DFG-Branchenbrief, prägnant, glossig, meinungsstark
+- Max. 800 Wörter – Qualität über Quantität
+- Am Ende: 3–5 terminierte Action Items für den Account Manager
 
-Schreibe auf Deutsch, prägnant und handlungsorientiert."""
+Schreibe auf Deutsch."""
 
     with client.messages.stream(
         model="claude-sonnet-4-6",
@@ -361,7 +401,7 @@ def build_html_email(report_content: str, today: date) -> str:
 
     <div class="header">
       <h1>🏥 KassenInfodienst</h1>
-      <p>Wöchentlicher Überblick &bull; {date_str}</p>
+      <p>KW {today.isocalendar()[1]} &bull; {date_str} &bull; Nur was zählt.</p>
     </div>
 
     <div class="content">
@@ -494,14 +534,10 @@ def make_report_header(today: date, tage: int, kassen: list[dict]) -> str:
     period_end = today.strftime("%d.%m.%Y")
     kassen_namen = ", ".join(k["short"] for k in kassen)
 
-    return f"""# KassenInfodienst – Wöchentlicher Überblick
+    kw = today.isocalendar()[1]
+    return f"""# KassenInfodienst | KW {kw}
 
-**Erstellt am:** {today.strftime("%d. %B %Y")}
-**Recherchezeitraum:** {period_start} – {period_end}
-**Kassen:** {len(kassen)} ({kassen_namen})
-
-> Dieser Bericht wurde automatisch mit Claude (Anthropic) und Web-Recherche erstellt.
-> Alle Angaben ohne Gewähr – bitte Quellen prüfen.
+*{today.strftime("%d. %B %Y")} · {len(kassen)} Kassen · Recherchezeitraum {period_start} – {period_end}*
 
 ---
 
@@ -535,11 +571,6 @@ def main() -> None:
     print(f"   Ausgabe:   {output_path}")
     print()
 
-    header = make_report_header(today, args.tage, kassen)
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(header)
-
     # Kassen in Batches aufteilen
     batches = [kassen[i : i + BATCH_SIZE] for i in range(0, len(kassen), BATCH_SIZE)]
     all_research_parts: list[str] = []
@@ -571,11 +602,9 @@ def main() -> None:
                     print(f"   ❌ {batch_names} nach {MAX_RETRIES + 1} Versuchen fehlgeschlagen: {e}", file=sys.stderr)
                     research = f"\n> ⚠️ {batch_names} konnte nicht abgerufen werden.\n"
 
-        all_research_parts.append(research)
-
-        with open(output_path, "a", encoding="utf-8") as f:
-            f.write(research)
-            f.write("\n")
+        # Nur echte Highlights sammeln (KEINE_HIGHLIGHTS ignorieren)
+        if research.strip() and "KEINE_HIGHLIGHTS" not in research:
+            all_research_parts.append(research)
 
         print(f"   ✅ Fertig.")
 
@@ -584,29 +613,30 @@ def main() -> None:
             print(f"   ⏳ Pause {BATCH_PAUSE}s ...")
             time.sleep(BATCH_PAUSE)
 
-    # Executive Summary
+    # Newsletter zusammensetzen
+    all_research = "\n\n".join(all_research_parts)
+    highlights_count = len(all_research_parts)
+    print(f"\n📊 {highlights_count}/{len(kassen)} Kassen mit Highlights gefunden.")
+
     summary = ""
-    if not args.kein_summary:
-        print()
-        print("📊 Erstelle Executive Summary ...")
-        all_research = "\n".join(all_research_parts)
+    if not args.kein_summary and highlights_count > 0:
+        print("📰 Erstelle Newsletter ...")
 
         try:
             summary = generate_executive_summary(client, all_research, today)
         except anthropic.APIError as e:
-            print(f"   ⚠️  Summary-Fehler: {e}", file=sys.stderr)
-            summary = f"> ⚠️ Executive Summary konnte nicht erstellt werden: {e}\n"
-
-        # Summary an den Anfang einfügen (nach Header)
-        existing_content = output_path.read_text(encoding="utf-8")
-        summary_block = f"## 📊 Executive Summary\n\n{summary}\n\n---\n\n"
-        new_content = existing_content.replace("---\n\n", "---\n\n" + summary_block, 1)
-        output_path.write_text(new_content, encoding="utf-8")
+            print(f"   ⚠️  Newsletter-Fehler: {e}", file=sys.stderr)
+            summary = f"> ⚠️ Newsletter konnte nicht erstellt werden: {e}\n"
 
         print("   ✅ Fertig.")
+    elif highlights_count == 0:
+        summary = "*Keine berichtenswerten Highlights in dieser Woche gefunden.*\n"
 
-    print()
-    print(f"✅ Bericht gespeichert: {output_path}")
+    # Finalen Newsletter schreiben (Header + kuratierter Inhalt)
+    header = make_report_header(today, args.tage, kassen)
+    output_path.write_text(header + summary, encoding="utf-8")
+
+    print(f"\n✅ Newsletter gespeichert: {output_path}")
 
     # E-Mail versenden
     if args.email:
@@ -614,7 +644,6 @@ def main() -> None:
         send_email(output_path, summary, today)
 
     print()
-    print("Tipp: Wöchentliche Automatisierung → python setup_schedule.py")
 
 
 if __name__ == "__main__":
