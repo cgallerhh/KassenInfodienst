@@ -410,8 +410,12 @@ def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
                         elements = flat
                     if elements:
                         print(f"      ✅ {len(elements)} Elemente")
+                        print(f"      Erstes Element (keys): {list(elements[0].keys())[:8]}")
                         raw_elements = elements
                         break
+                    else:
+                        # Keine Elemente – zeige rohe Antwort für Diagnose
+                        print(f"      Rohantwort (500 Zeichen): {r.text[:500]}")
                 time.sleep(0.3)
             except Exception as e:
                 print(f"      ⚠️  {e}")
