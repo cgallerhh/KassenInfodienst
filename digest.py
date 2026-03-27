@@ -78,8 +78,8 @@ WAS RELEVANT IST (nur darüber berichten):
 - 🔥 Personalwechsel: Vorstände, CIOs, Bereichsleiter Digital/IT (Name, von wo, seit wann)
 - 📣 LinkedIn-Highlights: Posts von Kassenentscheidern mit hoher Resonanz (>50 Reaktionen),
   besonders zu Projektabschlüssen, Strategiewechseln, konkreten Digitalisierungserfolgen
-- 💎 Ausschreibungen >1 Mio €: Nur TED-Vergaben mit Volumen über 1 Mio € Vertragslaufzeit,
-  inkl. CPV-Code, Frist, geschätztes Volumen
+- 💎 Ausschreibungen (TED): EU-schwellenwertüberschreitende Vergaben der Kassen,
+  inkl. CPV-Code, Frist, Volumen (falls bekannt)
 - 📉 Personalabbau / Stellenstopps: Signal für Automatisierungsbedarf (weniger Leute, mehr Aufgaben)
 - 🤖 KI & Automatisierung: Konkrete Projekte (nicht "plant den Einsatz von KI"), sondern
   "hat Chatbot live geschaltet", "automatisiert Antragsbearbeitung mit X"
@@ -91,7 +91,7 @@ WAS NICHT RELEVANT IST (ignorieren):
 - Allgemeine Digitalisierungs-Absichtserklärungen ohne konkretes Projekt
 - Beitragssatzänderungen im normalen Rahmen (±0,1-0,3%)
 - Generische Pressemitteilungen ohne Nachrichtenwert
-- Kleine Ausschreibungen <1 Mio €
+- Ausschreibungen ohne erkennbaren IT-/Strategie-Bezug (z. B. Bürobedarf, Reinigung)
 
 OUTPUT-FORMAT:
 Schreibe KEINEN Report pro Kasse mit leeren Abschnitten. Stattdessen:
@@ -154,10 +154,13 @@ TED_FIELDS = [
 
 
 def search_ted_tenders(kassen: list[dict], tage: int) -> str:
-    """Sucht TED-Ausschreibungen >1 Mio € für alle Kassen in einem API-Call.
+    """Sucht TED-Ausschreibungen aller Wertgrenzen für alle Kassen in einem API-Call.
 
     Gibt einen formatierten Markdown-Block zurück, der direkt in den Newsletter
     als Kontext für den 'Ausschreibungen'-Abschnitt einfließt.
+    Hinweis: TED enthält nur EU-schwellenwertüberschreitende Ausschreibungen
+    (Liefer-/DL ab ~143k€, Bau ab ~5,5 Mio€). UVgO-Ausschreibungen (national)
+    werden auf DTVP/subreport veröffentlicht, nicht auf TED.
     """
     today = date.today()
     start_date = (today - timedelta(days=tage)).strftime("%Y%m%d")
@@ -218,14 +221,13 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
 
     notices = [
         n for n in data.get("notices", [])
-        if _notice_value(n) >= 1_000_000
-        and is_relevant_kasse(n.get("buyer-name"))
+        if is_relevant_kasse(n.get("buyer-name"))
     ]
     if not notices:
         return ""
 
     # Ergebnisse formatieren (nach Kasse gruppiert)
-    lines = ["## 💎 TED-Ausschreibungen >1 Mio € (via TED API)\n"]
+    lines = ["## 💎 TED-Ausschreibungen (via TED API)\n"]
     for n in notices:
         pub_num = n.get("publication-number", "")
         title   = (n.get("notice-title") or "Ohne Titel")
@@ -337,27 +339,42 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                 actor_name = str(author) or kasse["short"]
                 actor_title = ""
 
-            # Relevanz-Filter: Entscheider-Titel ODER relevantes Thema im Text
-            ENTSCHEIDER = {"vorstand", "cio", "cto", "cdo", "coo", "leiter", "direktor",
-                           "geschäftsführer", "vorsitzender", "head of", "it-", "digital"}
-            THEMEN = {"ki ", "künstliche", "automatisierung", "digitalisierung", "ausschreibung",
-                      "fusion", "stellenabbau", "projekt", "launch", "go-live", "partnerschaft"}
-            text_lower = text.lower()
-            is_entscheider = any(k in actor_title for k in ENTSCHEIDER)
-            is_relevant = any(k in text_lower for k in THEMEN)
-            if not is_entscheider and not is_relevant:
-                continue
-
-            # Reaktionen
+            # Reaktionen zuerst lesen (brauchen wir für den Filter)
             likes = post.get("numLikes") or post.get("likes") or 0
             comments = post.get("numComments") or post.get("comments") or 0
+            reactions = int(likes) + int(comments)
+
+            # Relevanz-Filter:
+            #   Person: nur C-Level / CDO / Leiter Geschäftsbereich / Head of
+            #   Inhalt: IT-Thema ODER 50+ Reaktionen (viraler High-Level-Post)
+            ENTSCHEIDER = {
+                "vorstand", "ceo", "cio", "cto", "cdo", "coo", "cfo",
+                "geschäftsführer", "vorsitzender",
+                "geschäftsbereichsleiter", "leiter geschäftsbereich",
+                "bereichsleiter", "head of", "it-leiter", "digitalisierungsleiter",
+            }
+            THEMEN_IT = {
+                "ki ", "künstliche intelligenz", "automatisierung", "digitalisierung",
+                "software", "cloud", "plattform", " api ", "daten", "system",
+                "it-", "cyber", "sicherheit", "technologie", "agil", "scrum",
+            }
+            text_lower = text.lower()
+            is_entscheider = any(k in actor_title for k in ENTSCHEIDER)
+            is_it_thema = any(k in text_lower for k in THEMEN_IT)
+            is_viral = reactions >= 50
+
+            # Nur Entscheider-Posts; davon nur IT-Themen oder virale Posts
+            if not is_entscheider:
+                continue
+            if not is_it_thema and not is_viral:
+                continue
 
             post_date = datetime.fromtimestamp(ts / 1000).strftime("%d.%m.%Y") if ts else "?"
             line = f"  - [{post_date}] **{actor_name}**"
             if actor_title:
                 line += f" ({actor_title[:60]})"
             line += f": {text[:300].strip()}"
-            if likes or comments:
+            if reactions:
                 line += f" _(👍 {likes} · 💬 {comments})_"
             findings.append(line)
 
@@ -1186,7 +1203,7 @@ def main() -> None:
     ted_section = search_ted_tenders(kassen, max(args.tage, 30))
     if ted_section:
         count = ted_section.count("\n- ")
-        print(f"   ✅ {count} Ausschreibung(en) >1 Mio € gefunden.")
+        print(f"   ✅ {count} Ausschreibung(en) gefunden.")
     else:
         print("   ℹ️  Keine TED-Ausschreibungen im Zeitraum gefunden.")
     print()
