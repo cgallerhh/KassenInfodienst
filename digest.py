@@ -298,13 +298,17 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             if not isinstance(post, dict):
                 continue
 
-            # Zeitstempel prüfen
-            ts = post.get("postedAt") or post.get("createdAt") or post.get("timestamp") or 0
-            if isinstance(ts, str):
+            # Zeitstempel prüfen (kann int, str oder dict sein)
+            ts_raw = post.get("postedAt") or post.get("createdAt") or post.get("timestamp") or 0
+            if isinstance(ts_raw, dict):
+                ts = int(ts_raw.get("time") or ts_raw.get("timestamp") or ts_raw.get("value") or 0)
+            elif isinstance(ts_raw, str):
                 try:
-                    ts = int(ts)
+                    ts = int(ts_raw)
                 except ValueError:
                     ts = 0
+            else:
+                ts = int(ts_raw or 0)
             if ts and ts < cutoff_ts_ms:
                 continue
 
