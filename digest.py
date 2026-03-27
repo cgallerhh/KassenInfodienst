@@ -27,7 +27,7 @@ import smtplib
 import sys
 import time
 import urllib.parse
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -282,38 +282,192 @@ def _parse_rss_xml(xml_text: str, cutoff: date) -> list[tuple[str, str]]:
     return results
 
 
-def scrape_linkedin_rss(kassen: list[dict], tage: int) -> str:
-    """Scraped LinkedIn-Posts via Google News RSS und direkte LinkedIn-Unternehmensseiten.
+def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
+    """Scraped LinkedIn-Unternehmensseiten direkt via li_at-Session-Cookie.
 
-    Nutzt stdlib xml.etree + BeautifulSoup für öffentlich zugängliche Inhalte.
-    Kein LinkedIn-Account oder API-Key erforderlich.
-    Gibt einen Markdown-Block zurück der als zusätzlicher Kontext in den Newsletter fließt.
+    Nutzt LinkedIn's interne Voyager-API – kein externer Dienst, keine Kosten.
+    Benötigt: LINKEDIN_LI_AT Umgebungsvariable (Session-Cookie aus Browser-DevTools).
+
+    Cookie-Lebensdauer: ~1 Jahr. Bei Ablauf: li_at in GitHub Secrets erneuern.
     """
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        print("   ⚠️  beautifulsoup4 nicht installiert – LinkedIn-RSS übersprungen.")
+    li_at = os.environ.get("LINKEDIN_LI_AT", "").strip()
+    if not li_at:
         return ""
 
+    today = date.today()
+    cutoff = today - timedelta(days=tage)
+    cutoff_ts_ms = int(datetime(cutoff.year, cutoff.month, cutoff.day).timestamp()) * 1000
+
+    session = req.Session()
+    BASE_HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+
+    # Setze li_at-Cookie und lade LinkedIn-Startseite → LinkedIn setzt JSESSIONID zurück
+    session.cookies.set("li_at", li_at, domain=".linkedin.com", path="/")
+    jsessionid = None
+    try:
+        resp = session.get(
+            "https://www.linkedin.com/feed/",
+            headers=BASE_HEADERS,
+            timeout=20,
+            allow_redirects=True,
+        )
+        jsessionid = session.cookies.get("JSESSIONID")
+    except Exception as e:
+        print(f"   ⚠️  LinkedIn Session-Init fehlgeschlagen: {e}", file=sys.stderr)
+        return ""
+
+    if not jsessionid:
+        print(
+            "   ⚠️  LinkedIn: kein JSESSIONID erhalten – li_at abgelaufen oder ungültig.",
+            file=sys.stderr,
+        )
+        return ""
+
+    # csrf-token = JSESSIONID ohne umgebende Anführungszeichen
+    csrf_token = jsessionid.strip('"')
+
+    API_HEADERS = {
+        **BASE_HEADERS,
+        "Accept": "application/vnd.linkedin.normalized+json+2.1",
+        "x-li-lang": "de_DE",
+        "x-li-track": (
+            '{"clientVersion":"1.13.12","osName":"web","timezoneOffset":1,'
+            '"timezone":"Europe/Berlin","deviceFormFactor":"DESKTOP"}'
+        ),
+        "x-restli-protocol-version": "2.0.0",
+        "csrf-token": csrf_token,
+        "Referer": "https://www.linkedin.com/",
+    }
+
+    all_findings: list[str] = []
+    post_count = 0
+
+    for kasse in kassen:
+        # Slug aus der linkedin_url extrahieren: ".../company/techniker-krankenkasse/" → "techniker-krankenkasse"
+        raw_url = kasse.get("linkedin_url", "")
+        if "/company/" not in raw_url:
+            continue
+        slug = raw_url.split("/company/")[-1].strip("/")
+        if not slug:
+            continue
+
+        company_id = None
+
+        # Schritt 1: Company-ID via Voyager-API holen
+        try:
+            lookup_url = (
+                "https://www.linkedin.com/voyager/api/organization/companies"
+                f"?q=universalName&universalName={urllib.parse.quote(slug)}"
+                "&projection=(entityUrn,name)"
+            )
+            r = session.get(lookup_url, headers=API_HEADERS, timeout=12)
+            if r.status_code == 200:
+                data = r.json()
+                elements = data.get("elements", [])
+                if elements:
+                    urn = elements[0].get("entityUrn", "")
+                    # "urn:li:company:12345" → "12345"
+                    company_id = urn.split(":")[-1] if ":" in urn else None
+            time.sleep(0.5)
+        except Exception:
+            pass
+
+        if not company_id:
+            continue
+
+        # Schritt 2: Aktuelle Unternehmens-Posts laden
+        findings: list[str] = []
+        try:
+            org_urn = urllib.parse.quote(f"urn:li:organization:{company_id}")
+            posts_url = (
+                "https://www.linkedin.com/voyager/api/feed/updatesV2"
+                f"?companyIds={org_urn}&count=8&start=0"
+            )
+            r = session.get(posts_url, headers=API_HEADERS, timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                # Unterstütze beide Antwort-Formate: {"elements": [...]} und {"data": {"elements": [...]}}
+                elements = data.get("elements") or data.get("data", {}).get("elements", [])
+
+                for el in elements:
+                    # Zeitstempel prüfen
+                    created = el.get("created", {})
+                    ts = created.get("time", 0) if isinstance(created, dict) else int(created or 0)
+                    if ts and ts < cutoff_ts_ms:
+                        continue
+
+                    # Post-Text
+                    value = el.get("value", {})
+                    update = value.get("com.linkedin.voyager.feed.render.UpdateV2", {})
+                    commentary = update.get("commentary", {})
+                    text_obj = commentary.get("text", {})
+                    text = (text_obj.get("text", "") if isinstance(text_obj, dict) else str(text_obj)).strip()
+                    if not text or len(text) < 30:
+                        continue
+
+                    # Autor
+                    actor = update.get("actor", {})
+                    name_obj = actor.get("name", {}) if isinstance(actor, dict) else {}
+                    actor_name = (name_obj.get("text", "") if isinstance(name_obj, dict) else str(name_obj)).strip()
+                    if not actor_name:
+                        actor_name = kasse["short"]
+
+                    # Reaktionen
+                    social = update.get("socialDetail", {})
+                    counts = social.get("totalSocialActivityCounts", {}) if isinstance(social, dict) else {}
+                    likes = counts.get("numLikes", 0) if isinstance(counts, dict) else 0
+                    comments = counts.get("numComments", 0) if isinstance(counts, dict) else 0
+
+                    post_date = ""
+                    if ts:
+                        post_date = datetime.fromtimestamp(ts / 1000).strftime("%d.%m.%Y")
+
+                    line = f"  - [{post_date}] **{actor_name}**: {text[:280].strip()}"
+                    if likes or comments:
+                        line += f" _(👍 {likes} · 💬 {comments})_"
+                    findings.append(line)
+
+            time.sleep(0.5)
+        except Exception:
+            pass
+
+        if findings:
+            all_findings.append(f"**{kasse['short']}** (LinkedIn direkt):")
+            all_findings.extend(findings[:4])
+            all_findings.append("")
+            post_count += len(findings[:4])
+
+    if not all_findings:
+        return ""
+
+    lines = [f"## 📣 LinkedIn-Direktdaten ({post_count} Posts via li_at-Session)\n"]
+    lines.extend(all_findings)
+    return "\n".join(lines)
+
+
+def scrape_linkedin_rss(kassen: list[dict], tage: int) -> str:
+    """Fallback: LinkedIn via Google News RSS (kein li_at erforderlich, aber weniger Daten)."""
     today = date.today()
     cutoff = today - timedelta(days=tage)
 
     HEADERS = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         ),
         "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
     }
 
     all_findings: list[str] = []
-
     for kasse in kassen:
         company = kasse["linkedin_search"]
         company_findings: list[str] = []
-
-        # 1. Google News RSS – sucht nach LinkedIn-Posts dieser Kasse
         for query in [
             f'site:linkedin.com/posts "{company}"',
             f'"{company}" linkedin.com Vorstand CIO Digitalisierung',
@@ -326,38 +480,19 @@ def scrape_linkedin_rss(kassen: list[dict], tage: int) -> str:
             try:
                 resp = req.get(rss_url, headers=HEADERS, timeout=10)
                 if resp.status_code == 200:
-                    for title, link in _parse_rss_xml(resp.text, cutoff)[:8]:
+                    for title, link in _parse_rss_xml(resp.text, cutoff)[:5]:
                         company_findings.append(f"  - {title} → {link}")
             except Exception:
                 pass
 
-        # 2. Direkte LinkedIn-Unternehmensseite (öffentliche og:-Meta-Tags)
-        linkedin_slug = company.lower().replace(" ", "-").replace("(", "").replace(")", "")
-        linkedin_url = f"https://www.linkedin.com/company/{linkedin_slug}/posts/"
-        try:
-            resp = req.get(linkedin_url, headers=HEADERS, timeout=10, allow_redirects=True)
-            if resp.status_code == 200 and "linkedin" in resp.url:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                og_desc = soup.find("meta", property="og:description")
-                og_title = soup.find("meta", property="og:title")
-                if og_desc and og_desc.get("content"):
-                    desc = og_desc["content"][:300]
-                    title_txt = og_title["content"] if og_title else company
-                    company_findings.append(
-                        f"  - [LinkedIn-Seite] {title_txt}: {desc} → {linkedin_url}"
-                    )
-        except Exception:
-            pass
-
         if company_findings:
             all_findings.append(f"**{kasse['short']}** (LinkedIn/RSS):")
-            all_findings.extend(company_findings[:5])  # Max 5 pro Kasse
+            all_findings.extend(company_findings[:4])
             all_findings.append("")
 
     if not all_findings:
         return ""
-
-    lines = ["## 📣 LinkedIn-RSS-Findings (automatisch gescraped)\n"]
+    lines = ["## 📣 LinkedIn-RSS-Findings (Fallback ohne li_at)\n"]
     lines.extend(all_findings)
     return "\n".join(lines)
 
@@ -910,15 +1045,25 @@ def main() -> None:
             print(f"   ⏳ Pause {BATCH_PAUSE}s ...")
             time.sleep(BATCH_PAUSE)
 
-    # LinkedIn RSS-Feeds scrapen (zusätzliche Quelle, parallel zum Web-Search)
-    print("🔗 LinkedIn RSS-Feeds scrapen ...")
-    linkedin_rss = scrape_linkedin_rss(kassen, args.tage)
-    if linkedin_rss:
-        lines_count = linkedin_rss.count("\n- ") + linkedin_rss.count("\n  - ")
-        print(f"   ✅ {lines_count} LinkedIn/RSS-Findings gesammelt.")
-        all_research_parts.insert(0, linkedin_rss)
+    # LinkedIn-Posts scrapen: Voyager-API (li_at) bevorzugt, RSS als Fallback
+    linkedin_data = ""
+    if os.environ.get("LINKEDIN_LI_AT"):
+        print("🔗 LinkedIn Voyager-API (li_at-Session) ...")
+        linkedin_data = scrape_linkedin_voyager(kassen, args.tage)
+        if linkedin_data:
+            post_count = linkedin_data.count("\n  - [")
+            print(f"   ✅ {post_count} LinkedIn-Posts direkt abgerufen.")
+        else:
+            print("   ℹ️  Keine LinkedIn-Posts im Zeitraum (oder li_at abgelaufen).")
     else:
-        print("   ℹ️  Keine LinkedIn-RSS-Findings im Zeitraum.")
+        print("🔗 LinkedIn RSS-Fallback (kein LINKEDIN_LI_AT gesetzt) ...")
+        linkedin_data = scrape_linkedin_rss(kassen, args.tage)
+        if linkedin_data:
+            print(f"   ✅ LinkedIn-RSS-Findings gesammelt.")
+        else:
+            print("   ℹ️  Keine LinkedIn-RSS-Findings im Zeitraum.")
+    if linkedin_data:
+        all_research_parts.insert(0, linkedin_data)
     print()
 
     # Newsletter zusammensetzen – TED-Daten voranstellen

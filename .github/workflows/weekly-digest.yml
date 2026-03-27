@@ -50,6 +50,7 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          LINKEDIN_LI_AT: ${{ secrets.LINKEDIN_LI_AT }}
         run: |
           # Kassen-Filter aus manuellem Aufruf
           KASSEN_ARG=""
