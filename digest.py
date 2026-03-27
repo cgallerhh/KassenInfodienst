@@ -42,7 +42,7 @@ except ImportError:
 from kassen import KASSEN
 
 BATCH_SIZE = 1          # Eine Kasse pro API-Call (verhindert parallele Search-Floods)
-MAX_SEARCHES = 3        # 3 gezielte Suchen pro Kasse
+MAX_SEARCHES = 2        # 2 News-Suchen pro Kasse (LinkedIn kommt via Voyager-API)
 BATCH_PAUSE = 8         # Sekunden Pause zwischen Calls (kurz halten – Rate-Limit reset ist schnell)
 MAX_RETRIES = 1         # Nur 1 Wiederholung (spart Zeit bei Fehlern)
 API_TIMEOUT = 90        # Timeout pro API-Call in Sekunden – bei Hänger schnell abbrechen
@@ -533,34 +533,24 @@ def research_batch(client: anthropic.Anthropic, batch: list[dict], tage: int) ->
     k = batch[0] if len(batch) == 1 else None
 
     if k:
-        user_prompt = f"""Recherchiere Highlights für: **{k['name']}** | {k['url']}
+        user_prompt = f"""Recherchiere News-Highlights für: **{k['name']}** | {k['url']}
 Suchfenster: {period_start} – {period_end}
 
-Führe genau 3 Web-Suchen durch:
+Führe genau 2 Web-Suchen durch (NUR Nachrichtenquellen – LinkedIn wird separat via API abgefragt):
 
-SUCHE 1 – LinkedIn (Personen):
-site:linkedin.com "{k['linkedin_search']}" Vorstand OR CIO OR Bereichsleiter OR Digitalisierung 2026
-→ KEIN after:-Filter! Google indexiert LinkedIn-Posts verzögert (Wochen bis Monate).
-  Suche nach Posts von Führungskräften zu: Projekten, Strategien, Partnerschafts-Ankündigungen.
-  Bewerte jeden Fund: Ist das Datum des Posts im Suchfenster {period_start}–{period_end}?
-  Wenn ja → ausführlich berichten. Wenn nein → ignorieren.
+SUCHE 1 – Aktuelle News & Pressemeldungen:
+"{k['name']}" (KI OR Automatisierung OR Fusion OR Stellenabbau OR Ausschreibung OR Personalwechsel OR Vorstand) after:{after_date}
+→ Nachrichten, Pressemitteilungen, Fachmedien (GKV-Spitzenverband, aerzteblatt.de, krankenhaus.de, heise.de)
+  NUR Inhalte mit konkretem Datum im Suchfenster {period_start}–{period_end}.
 
-SUCHE 2 – LinkedIn (Unternehmensseite):
-site:linkedin.com/company "{k['linkedin_search']}"
-→ Unternehmensseite der Kasse auf LinkedIn: aktuelle Company-Posts, Ankündigungen,
-  neue Mitarbeiter-Highlights, Events. Datum prüfen wie Suche 1.
-
-SUCHE 3 – Aktuelle News:
-"{k['name']}" (KI OR Automatisierung OR Fusion OR Stellenabbau OR Ausschreibung OR Personalwechsel) after:{after_date}
-→ Nachrichten und Pressemeldungen SEIT {period_start}. after:-Operator greift hier zuverlässig.
+SUCHE 2 – Branchenmedien & Fachpresse:
+"{k['name']}" site:gkv-spitzenverband.de OR site:aok.de OR site:vdek.com OR site:heise.de after:{after_date}
+→ Offizielle Verlautbarungen, IT-Projekte, Kooperationen. Datum prüfen.
 
 ZEITREGEL: Nur Inhalte aus {period_start}–{period_end} berichten.
-Bekannte Vorstandsänderungen (2025, 1.1.2026, 1.4.2026, hkk/Pronova/BAHN-BKK): IGNORIEREN.
+Bekannte Vorstandsänderungen (2025, 1.1.2026, 1.4.2026): IGNORIEREN.
 
-OUTPUT-PRIORITÄT:
-1. LinkedIn-Posts mit Datum im Suchfenster (ausführlich: Name, Titel, Inhalt, Reaktionen)
-2. Aktuelle News mit konkretem Neuigkeitswert
-3. Wenn gar nichts: nur "KEINE_HIGHLIGHTS" ausgeben."""
+OUTPUT: Wenn nichts Relevantes im Zeitfenster: nur "KEINE_HIGHLIGHTS" ausgeben."""
     else:
         kassen_liste = "\n".join(
             f"- **{ki['name']}** | {ki['url']}"
