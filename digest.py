@@ -170,7 +170,7 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
         "query": query,
         "fields": TED_FIELDS,
         "limit": 250,
-        "scope": "ACTIVE",
+        "scope": "ALL",
         "paginationMode": "PAGE_NUMBER",
         "page": 1,
     }
