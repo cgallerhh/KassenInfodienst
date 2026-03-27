@@ -882,147 +882,248 @@ def build_html_email(report_content: str, today: date) -> str:
 
     date_str = today.strftime("%d. %B %Y")
 
+    kw = today.isocalendar()[1]
+
     return f"""<!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>KassenInfodienst KW {kw}</title>
   <style>
+    /* ── Reset ── */
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+
     body {{
-      margin: 0; padding: 20px;
-      background: #eef2f7;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-      color: #333;
+      background: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      color: #1e293b;
+      font-size: 15px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
     }}
-    .container {{ max-width: 720px; margin: 0 auto; }}
 
-    /* Header */
+    /* ── Wrapper ── */
+    .wrapper {{
+      max-width: 660px;
+      margin: 32px auto;
+      padding: 0 16px 48px;
+    }}
+
+    /* ── Topbar ── */
+    .topbar {{
+      background: #0f172a;
+      border-radius: 14px 14px 0 0;
+      padding: 6px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }}
+    .topbar-label {{
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #64748b;
+    }}
+    .topbar-kw {{
+      font-size: 11px;
+      font-weight: 600;
+      color: #38bdf8;
+      letter-spacing: 1px;
+    }}
+
+    /* ── Header ── */
     .header {{
-      background: linear-gradient(135deg, #1a3a5c 0%, #2563a8 100%);
-      padding: 32px 36px;
-      border-radius: 12px 12px 0 0;
+      background: #0f172a;
+      padding: 36px 36px 30px;
       text-align: center;
+      border-top: 1px solid #1e293b;
     }}
-    .header h1 {{ color: white; margin: 0; font-size: 26px; letter-spacing: -0.5px; }}
-    .header p  {{ color: #a8c8e8; margin: 8px 0 0; font-size: 14px; }}
+    .header-eyebrow {{
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #38bdf8;
+      margin-bottom: 10px;
+    }}
+    .header h1 {{
+      font-size: 30px;
+      font-weight: 800;
+      color: #f8fafc;
+      letter-spacing: -0.8px;
+      margin-bottom: 10px;
+    }}
+    .header-sub {{
+      font-size: 13px;
+      color: #64748b;
+    }}
+    .header-divider {{
+      margin: 24px auto 0;
+      width: 48px;
+      height: 3px;
+      background: linear-gradient(90deg, #38bdf8, #818cf8);
+      border-radius: 99px;
+    }}
 
-    /* Body */
-    .content {{
-      background: white;
-      padding: 36px;
-      border-radius: 0 0 12px 12px;
-      border: 1px solid #dce4ef;
+    /* ── Content card ── */
+    .card {{
+      background: #ffffff;
+      padding: 40px 40px;
+      border-radius: 0 0 14px 14px;
+      border: 1px solid #e2e8f0;
       border-top: none;
     }}
 
-    /* Kassen-Blöcke: jedes ## wird zur Kasse-Card */
+    /* ── Section headings (##) ── */
     h2 {{
-      color: #1a3a5c;
-      font-size: 20px;
-      margin: 40px 0 4px;
-      padding: 16px 20px 14px;
-      background: #f0f5fb;
-      border-left: 5px solid #2563a8;
+      font-size: 18px;
+      font-weight: 700;
+      color: #0f172a;
+      margin: 44px 0 14px;
+      padding: 14px 18px;
+      background: #f8fafc;
+      border-left: 4px solid #38bdf8;
       border-radius: 0 8px 8px 0;
+      letter-spacing: -0.2px;
     }}
     h2:first-child {{ margin-top: 0; }}
 
-    /* Abschnittsüberschriften */
+    /* ── Sub-headings (###) ── */
     h3 {{
-      color: #444;
-      font-size: 15px;
-      margin: 20px 0 6px;
-      padding-bottom: 4px;
-      border-bottom: 1px solid #eee;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: #64748b;
+      margin: 24px 0 8px;
     }}
 
-    /* Verkaufschancen hervorheben */
-    h3:contains("Verkaufschancen"),
-    h3[id*="verkaufschancen"] {{
-      color: #b45309;
-      background: #fffbeb;
-      padding: 6px 10px;
-      border-radius: 4px;
-      border-bottom: 2px solid #f59e0b;
-    }}
+    /* ── Prose ── */
+    p {{ margin: 10px 0; color: #334155; }}
 
-    p   {{ line-height: 1.7; margin: 8px 0; }}
-    ul  {{ padding-left: 22px; line-height: 1.9; }}
-    li  {{ margin-bottom: 4px; }}
+    ul {{
+      padding-left: 0;
+      list-style: none;
+      margin: 6px 0 16px;
+    }}
+    li {{
+      padding: 8px 12px 8px 36px;
+      position: relative;
+      border-radius: 6px;
+      margin-bottom: 2px;
+      color: #334155;
+    }}
+    li:nth-child(odd)  {{ background: #f8fafc; }}
+    li:nth-child(even) {{ background: #fff; }}
+    li::before {{
+      content: "›";
+      position: absolute;
+      left: 14px;
+      color: #38bdf8;
+      font-weight: 700;
+      font-size: 16px;
+      line-height: 1.5;
+    }}
 
     a {{
-      color: #2563a8;
+      color: #2563eb;
       text-decoration: none;
       font-weight: 500;
+      border-bottom: 1px solid #bfdbfe;
     }}
-    a:hover {{ text-decoration: underline; }}
+    a:hover {{ color: #1d4ed8; border-bottom-color: #2563eb; }}
 
-    strong {{ color: #111; }}
-    em {{ color: #555; }}
+    strong {{ color: #0f172a; font-weight: 600; }}
+    em {{ color: #64748b; font-style: normal; font-size: 13px; }}
 
+    /* ── Blockquotes (Hinweise, Flurfunk) ── */
     blockquote {{
-      border-left: 4px solid #2563a8;
-      margin: 12px 0;
-      padding: 10px 18px;
-      color: #555;
-      background: #f5f9ff;
-      border-radius: 0 6px 6px 0;
-      font-style: normal;
+      margin: 16px 0;
+      padding: 14px 20px;
+      background: #fefce8;
+      border-left: 4px solid #eab308;
+      border-radius: 0 8px 8px 0;
+      color: #713f12;
+      font-size: 14px;
     }}
 
-    /* Tabellen */
-    table {{
-      border-collapse: collapse;
-      width: 100%;
-      margin: 14px 0;
-      font-size: 13px;
-    }}
-    th {{
-      background: #1a3a5c;
-      color: white;
-      padding: 10px 14px;
-      text-align: left;
-    }}
-    td {{
-      padding: 9px 14px;
-      border-bottom: 1px solid #eee;
-    }}
-    tr:nth-child(even) td {{ background: #f8fafc; }}
-
+    /* ── Horizontal rule ── */
     hr {{
       border: none;
-      border-top: 2px solid #e5eaf2;
+      border-top: 1px solid #e2e8f0;
       margin: 32px 0;
     }}
 
-    /* Emoji-Labels in Abschnitten */
-    h3 {{ position: relative; }}
+    /* ── Tables ── */
+    table {{
+      border-collapse: collapse;
+      width: 100%;
+      margin: 16px 0;
+      font-size: 13px;
+      border-radius: 8px;
+      overflow: hidden;
+    }}
+    th {{
+      background: #0f172a;
+      color: #94a3b8;
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }}
+    td {{
+      padding: 10px 14px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #334155;
+    }}
+    tr:last-child td {{ border-bottom: none; }}
+    tr:nth-child(even) td {{ background: #f8fafc; }}
 
-    /* Footer */
+    /* ── Divider between kassen-blocks ── */
+    .section-end {{
+      display: block;
+      height: 1px;
+      background: linear-gradient(90deg, #e2e8f0, transparent);
+      margin: 28px 0;
+    }}
+
+    /* ── Footer ── */
     .footer {{
       text-align: center;
-      padding: 20px;
-      color: #999;
+      margin-top: 24px;
+      padding: 0 16px;
+      color: #94a3b8;
       font-size: 12px;
-      line-height: 1.6;
+      line-height: 2;
     }}
-    .footer a {{ color: #aaa; }}
+    .footer a {{ color: #64748b; border-bottom: none; }}
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="wrapper">
 
-    <div class="header">
-      <h1>🏥 KassenInfodienst</h1>
-      <p>KW {today.isocalendar()[1]} &bull; {date_str} &bull; Nur was zählt.</p>
+    <div class="topbar">
+      <span class="topbar-label">GKV Marktintelligenz</span>
+      <span class="topbar-kw">KW&nbsp;{kw}&nbsp;·&nbsp;{date_str}</span>
     </div>
 
-    <div class="content">
+    <div class="header">
+      <div class="header-eyebrow">Wöchentlicher Branchenbrief</div>
+      <h1>KassenInfodienst</h1>
+      <div class="header-sub">Nur was zählt &mdash; kuratiert, analysiert, direkt.</div>
+      <div class="header-divider"></div>
+    </div>
+
+    <div class="card">
       {html_body}
     </div>
 
     <div class="footer">
-      Automatisch erstellt mit Claude Sonnet 4.6 &bull; {date_str}<br>
+      Erstellt mit Claude Sonnet&nbsp;4.6 &bull; {date_str}<br>
       <a href="https://github.com/cgallerhh/KassenInfodienst">github.com/cgallerhh/KassenInfodienst</a>
     </div>
 
