@@ -275,28 +275,30 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
     post_count = 0
 
     for kasse in kassen:
-        try:
-            result = client.search_posts(
-                keyword=kasse["linkedin_search"],
-                date_posted="past-month",
-                sort_by="date_posted",
-            )
-        except Exception as e:
-            print(f"   ⚠️  LinkdAPI Fehler {kasse['short']}: {e}", file=sys.stderr)
-            continue
+        # Zwei Suchen pro Kasse: Erwähnung der Kasse + Posts VON Mitarbeitern
+        raw_posts: list[dict] = []
+        for search_kwargs in [
+            # Suche 1: Alle Posts die die Kasse erwähnen (Keyword-Suche)
+            {"keyword": kasse["linkedin_search"], "date_posted": "past-month", "sort_by": "date_posted"},
+            # Suche 2: Posts von Mitarbeitern der Kasse (Author-Company-Filter)
+            {"author_company": kasse["linkedin_search"], "date_posted": "past-month", "sort_by": "date_posted"},
+        ]:
+            try:
+                result = client.search_posts(**search_kwargs)
+                if isinstance(result, dict) and result.get("success"):
+                    posts = result.get("data", {})
+                    if isinstance(posts, dict):
+                        posts = posts.get("posts") or posts.get("elements") or posts.get("items") or []
+                    raw_posts.extend(p for p in posts if isinstance(p, dict))
+            except Exception as e:
+                print(f"   ⚠️  LinkdAPI {kasse['short']} ({list(search_kwargs.keys())[0]}): {e}", file=sys.stderr)
+            time.sleep(0.3)
 
-        if not isinstance(result, dict) or not result.get("success"):
-            print(f"   ⚠️  LinkdAPI kein Erfolg für {kasse['short']}: {result}", file=sys.stderr)
-            continue
-
-        posts = result.get("data", {})
-        if isinstance(posts, dict):
-            posts = posts.get("posts") or posts.get("elements") or posts.get("items") or []
-
+        # Duplikate entfernen (gleicher Post-Text)
+        seen_texts: set[str] = set()
         findings: list[str] = []
-        for post in posts:
-            if not isinstance(post, dict):
-                continue
+
+        for post in raw_posts:
 
             # Zeitstempel prüfen (kann int, str oder dict sein)
             ts_raw = post.get("postedAt") or post.get("createdAt") or post.get("timestamp") or 0
@@ -320,19 +322,41 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             if not text or len(text) < 20:
                 continue
 
-            # Autor
+            # Duplikat-Check
+            text_key = text[:80]
+            if text_key in seen_texts:
+                continue
+            seen_texts.add(text_key)
+
+            # Autor + Titel (für Entscheider-Filter)
             author = post.get("author") or post.get("actor") or {}
             if isinstance(author, dict):
                 actor_name = author.get("name") or author.get("fullName") or kasse["short"]
+                actor_title = (author.get("headline") or author.get("title") or "").lower()
             else:
                 actor_name = str(author) or kasse["short"]
+                actor_title = ""
+
+            # Relevanz-Filter: Entscheider-Titel ODER relevantes Thema im Text
+            ENTSCHEIDER = {"vorstand", "cio", "cto", "cdo", "coo", "leiter", "direktor",
+                           "geschäftsführer", "vorsitzender", "head of", "it-", "digital"}
+            THEMEN = {"ki ", "künstliche", "automatisierung", "digitalisierung", "ausschreibung",
+                      "fusion", "stellenabbau", "projekt", "launch", "go-live", "partnerschaft"}
+            text_lower = text.lower()
+            is_entscheider = any(k in actor_title for k in ENTSCHEIDER)
+            is_relevant = any(k in text_lower for k in THEMEN)
+            if not is_entscheider and not is_relevant:
+                continue
 
             # Reaktionen
             likes = post.get("numLikes") or post.get("likes") or 0
             comments = post.get("numComments") or post.get("comments") or 0
 
             post_date = datetime.fromtimestamp(ts / 1000).strftime("%d.%m.%Y") if ts else "?"
-            line = f"  - [{post_date}] **{actor_name}**: {text[:300].strip()}"
+            line = f"  - [{post_date}] **{actor_name}**"
+            if actor_title:
+                line += f" ({actor_title[:60]})"
+            line += f": {text[:300].strip()}"
             if likes or comments:
                 line += f" _(👍 {likes} · 💬 {comments})_"
             findings.append(line)
@@ -342,8 +366,6 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             all_findings.extend(findings[:5])
             all_findings.append("")
             post_count += len(findings[:5])
-
-        time.sleep(0.3)  # Rate-Limit schonen
 
     if not all_findings:
         return ""
@@ -674,17 +696,16 @@ SUCHE 2 – Branchenmedien & Fachpresse:
 "{k['name']}" site:gkv-spitzenverband.de OR site:aok.de OR site:vdek.com OR site:heise.de after:{after_date}
 → Offizielle Verlautbarungen, IT-Projekte, Kooperationen. Datum prüfen.
 
-SUCHE 3 – LinkedIn (Fallback, Google-Index):
-site:linkedin.com "{k['linkedin_search']}" Vorstand OR CIO OR Digitalisierung OR Leiter
-→ HINWEIS: Google indexiert LinkedIn mit 4-8 Wochen Verzögerung. Posts aus {period_start}–{period_end}
-  erscheinen hier erst später. Trotzdem suchen: Falls Posts aus dem Fenster indexiert sind → ausführlich
-  berichten (Autor, Kernaussage, Datum). Posts von VOR dem Fenster → ignorieren.
-  Diese Suche ist Fallback – primäre LinkedIn-Daten kommen ggf. separat via direkter API.
+SUCHE 3 – Flurfunk & Branchengerüchte:
+"{k['name']}" (Fusion OR Zusammenschluss OR Verwaltungsrat OR BaFin OR Konflikt OR Streit OR Gerücht OR Insolvenz OR Beitrag OR Zusatzbeitrag) after:{after_date}
+→ Gossip, politische Konflikte, Fusionsgerüchte, Verwaltungsratszwist, BaFin-Beobachtungen.
+  Auch Beitragssatzänderungen >0.3% oder ungewöhnliche Zusatzbeitrags-Moves.
+  Datum prüfen – nur Inhalte aus {period_start}–{period_end}.
 
 ZEITREGEL: Nur Inhalte aus {period_start}–{period_end} berichten.
 Bekannte Vorstandsänderungen (2025, 1.1.2026, 1.4.2026): IGNORIEREN.
 
-OUTPUT: Wenn nichts Relevantes im Zeitfenster: nur "KEINE_HIGHLIGHTS" ausgeben."""
+OUTPUT: Rohdaten strukturiert ausgeben. Wenn nichts Relevantes: nur "KEINE_HIGHLIGHTS"."""
     else:
         kassen_liste = "\n".join(
             f"- **{ki['name']}** | {ki['url']}"
@@ -778,19 +799,36 @@ Erstelle den fertigen Newsletterinhalt aus den Rohdaten unten.
 ROHDATEN DIESER WOCHE:
 {all_research[:10000]}
 {last_week_block}
+SEKTIONEN (nur wenn Daten vorhanden, sonst weglassen):
+
+## 📣 LinkedIn-Radar  ← IMMER ZUERST, mind. 40% des Newsletters
+Jeden Post ausführlich: Autor + Titel/Position, Kernaussage, Datum, Engagement (Likes/Kommentare),
+dfg-Einordnung: Was steckt dahinter? Warum jetzt? Was bedeutet das für den Vertrieb?
+
+## 🔥 Wer kommt, wer geht
+Nur Personalwechsel die IN diesem Recherchezeitraum bekannt wurden.
+
+## 💎 Ausschreibungen, die sich lohnen
+Nur TED-Vergaben >1 Mio € aus den Rohdaten. Mit Frist und Volumen.
+
+## 🤖 Weniger Köpfe, mehr Maschinen
+Stellenabbau + KI/Automatisierungsprojekte – zusammen denken.
+
+## 💬 Flurfunk
+Fusionsgerüchte, Verwaltungsratszwist, BaFin-Beobachtungen, Beitragssatz-Moves.
+Wenn Gerücht: explizit kennzeichnen. Lieber einen pointierten Flurfunk als keinen.
+
+## 🎯 Was jetzt zu tun ist
+3–5 konkrete, terminierte Action Items. Direkt, knapp, mit Deadline.
+
 REGELN:
-- KEINEN Titel, KEINE Überschrift "KassenInfodienst" ausgeben – das macht der Header automatisch
-- Beginne IMMER mit ## 📣 LinkedIn-Radar als erstem und größtem Abschnitt (mind. 40% des Textes)
-- "KEINE_HIGHLIGHTS"-Einträge komplett ignorieren
-- KEINE Vorstandsänderungen die vor dem Recherchezeitraum stattfanden – diese sind bekannt
-- Keine Wiederholungen aus der letzten Woche – außer bei echter Entwicklung
-- LinkedIn-Posts absolut priorisieren: ausführlich berichten (Autor, Titel, Kernaussage, Engagement, Einordnung)
-- Tonalität: DFG-Branchenbrief, prägnant, meinungsstark, personalisiert
-- Max. 800 Wörter gesamt – Qualität über Quantität
-- Am Ende: 3–5 terminierte Action Items
-- Falls wenig Neues: ehrlich sagen statt mit Altmeldungen auffüllen
-- Abschnitte die keine Daten haben: WEGLASSEN – niemals "nicht verfügbar" oder "technischer Fehler" schreiben
-- Keine Ausschreibungen in den Daten = kein Ausschreibungsabschnitt (nicht erklären warum)
+- KEINEN Titel ausgeben – Header kommt automatisch
+- "KEINE_HIGHLIGHTS"-Einträge ignorieren
+- Keine Vorstandsänderungen vor dem Recherchezeitraum
+- Keine Wiederholungen aus letzter Woche (außer bei Entwicklung)
+- Tonalität: DFG-Branchenbrief – investigativ, meinungsstark, personalisiert, mit Namen
+- Max. 900 Wörter – Qualität vor Quantität
+- Abschnitte ohne Daten: WEGLASSEN (kein "nicht verfügbar")
 
 Schreibe auf Deutsch."""
 
@@ -1143,7 +1181,8 @@ def main() -> None:
 
     # TED-Ausschreibungen vorab abrufen (1 API-Call für alle Kassen)
     print("📋 TED-Ausschreibungen abrufen ...")
-    ted_section = search_ted_tenders(kassen, args.tage)
+    # TED: mindestens 30 Tage Fenster (GKV-Ausschreibungen kommen selten)
+    ted_section = search_ted_tenders(kassen, max(args.tage, 30))
     if ted_section:
         count = ted_section.count("\n- ")
         print(f"   ✅ {count} Ausschreibung(en) >1 Mio € gefunden.")
