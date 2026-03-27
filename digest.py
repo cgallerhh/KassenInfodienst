@@ -285,16 +285,27 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             # Suche 2: Posts von Mitarbeitern der Kasse (Author-Company-Filter)
             {"author_company": kasse["linkedin_search"], "date_posted": "past-month", "sort_by": "date_posted"},
         ]:
-            try:
-                result = client.search_posts(**search_kwargs)
-                if isinstance(result, dict) and result.get("success"):
-                    posts = result.get("data", {})
-                    if isinstance(posts, dict):
-                        posts = posts.get("posts") or posts.get("elements") or posts.get("items") or []
-                    raw_posts.extend(p for p in posts if isinstance(p, dict))
-            except Exception as e:
-                print(f"   ⚠️  LinkdAPI {kasse['short']} ({list(search_kwargs.keys())[0]}): {e}", file=sys.stderr)
-            time.sleep(0.3)
+            search_type = list(search_kwargs.keys())[0]
+            # Retry-Loop mit Exponential-Backoff bei 429
+            for attempt in range(3):
+                try:
+                    result = client.search_posts(**search_kwargs)
+                    if isinstance(result, dict) and result.get("success"):
+                        posts = result.get("data", {})
+                        if isinstance(posts, dict):
+                            posts = posts.get("posts") or posts.get("elements") or posts.get("items") or []
+                        raw_posts.extend(p for p in posts if isinstance(p, dict))
+                    break  # Erfolg
+                except Exception as e:
+                    err_str = str(e)
+                    if "429" in err_str and attempt < 2:
+                        wait = 15 * (attempt + 1)  # 15s, 30s
+                        print(f"   ⏳ LinkdAPI 429 – warte {wait}s ({kasse['short']} {search_type}) ...", file=sys.stderr)
+                        time.sleep(wait)
+                    else:
+                        print(f"   ⚠️  LinkdAPI {kasse['short']} ({search_type}): {e}", file=sys.stderr)
+                        break
+            time.sleep(3)  # 3s zwischen Requests (statt 0.3s)
 
         # Duplikate entfernen (gleicher Post-Text)
         seen_texts: set[str] = set()
