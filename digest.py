@@ -279,7 +279,7 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             result = client.search_posts(
                 keyword=kasse["linkedin_search"],
                 date_posted="past-month",
-                sort_by="recent",
+                sort_by="date_posted",
             )
         except Exception as e:
             print(f"   ⚠️  LinkdAPI Fehler {kasse['short']}: {e}", file=sys.stderr)
