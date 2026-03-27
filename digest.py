@@ -825,7 +825,7 @@ BEREITS LETZTE WOCHE BERICHTET (NICHT WIEDERHOLEN):
 Erstelle den fertigen Newsletterinhalt aus den Rohdaten unten.
 
 ROHDATEN DIESER WOCHE:
-{all_research[:10000]}
+{all_research[:28000]}
 {last_week_block}
 SEKTIONEN (nur wenn Daten vorhanden, sonst weglassen):
 
@@ -855,14 +855,15 @@ REGELN:
 - Keine Vorstandsänderungen vor dem Recherchezeitraum
 - Keine Wiederholungen aus letzter Woche (außer bei Entwicklung)
 - Tonalität: DFG-Branchenbrief – investigativ, meinungsstark, personalisiert, mit Namen
-- Max. 900 Wörter – Qualität vor Quantität
+- Jede Kasse mit verwertbaren Daten MUSS erscheinen – auch wenn nur 1-2 Sätze
+- Max. 2000 Wörter – lieber vollständig als kurz
 - Abschnitte ohne Daten: WEGLASSEN (kein "nicht verfügbar")
 
 Schreibe auf Deutsch."""
 
     with client.messages.stream(
         model="claude-sonnet-4-6",
-        max_tokens=2000,
+        max_tokens=4000,
         system=system_prompt_with_cache(SYSTEM_PROMPT),
         messages=[{"role": "user", "content": prompt}],
     ) as stream:
