@@ -39,7 +39,7 @@ try:
 except ImportError:
     pass
 
-from kassen import KASSEN
+from kassen import KASSEN, BEOBACHTETE_ORGS
 
 BATCH_SIZE = 1          # Eine Kasse pro API-Call (verhindert parallele Search-Floods)
 MAX_SEARCHES = 3        # 2 News-Suchen + 1 LinkedIn-Fallback
@@ -1310,18 +1310,20 @@ def main() -> None:
             time.sleep(BATCH_PAUSE)
 
     # LinkedIn-Posts scrapen: LinkdAPI > Voyager-API > RSS-Fallback
+    # BITMARCK + ITSC nur im LinkedIn-Radar, nicht im Web-Research
+    linkedin_targets = kassen + BEOBACHTETE_ORGS
     linkedin_data = ""
     if os.environ.get("LINKDAPI_KEY"):
-        print("🔗 LinkedIn via LinkdAPI ...")
-        linkedin_data = scrape_linkedin_linkdapi(kassen, args.tage)
+        print("🔗 LinkedIn via LinkdAPI (inkl. BITMARCK + ITSC) ...")
+        linkedin_data = scrape_linkedin_linkdapi(linkedin_targets, args.tage)
         if linkedin_data:
             post_count = linkedin_data.count("\n  - [")
             print(f"   ✅ {post_count} LinkedIn-Posts via LinkdAPI.")
         else:
             print("   ℹ️  Keine LinkedIn-Posts via LinkdAPI (Credits leer oder kein Treffer).")
     elif os.environ.get("LINKEDIN_LI_AT"):
-        print("🔗 LinkedIn Voyager-API (li_at-Session) ...")
-        linkedin_data = scrape_linkedin_voyager(kassen, args.tage)
+        print("🔗 LinkedIn Voyager-API (li_at-Session, inkl. BITMARCK + ITSC) ...")
+        linkedin_data = scrape_linkedin_voyager(linkedin_targets, args.tage)
         if linkedin_data:
             post_count = linkedin_data.count("\n  - [")
             print(f"   ✅ {post_count} LinkedIn-Posts via Voyager-API.")
@@ -1329,7 +1331,7 @@ def main() -> None:
             print("   ℹ️  Keine LinkedIn-Posts (li_at abgelaufen oder CI-Block).")
     else:
         print("🔗 LinkedIn web_search Fallback (kein API-Key gesetzt) ...")
-        linkedin_data = scrape_linkedin_rss(kassen, args.tage)
+        linkedin_data = scrape_linkedin_rss(linkedin_targets, args.tage)
         if linkedin_data:
             print("   ✅ LinkedIn-RSS-Findings gesammelt.")
         else:

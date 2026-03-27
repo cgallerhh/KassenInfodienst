@@ -124,3 +124,24 @@ KASSEN = [
         "linkedin_url": "https://www.linkedin.com/company/bahn-bkk/",
     },
 ]
+
+# GKV-IT-Dienstleister: werden nur im LinkedIn-Radar beobachtet,
+# nicht im Web-Research-Batch oder TED-Abruf.
+BEOBACHTETE_ORGS = [
+    {
+        "name": "BITMARCK Unternehmensgruppe",
+        "short": "BITMARCK",
+        "domain": "bitmarck.de",
+        "url": "https://www.bitmarck.de",
+        "linkedin_search": "BITMARCK",
+        "linkedin_url": "https://www.linkedin.com/company/bitmarck/",
+    },
+    {
+        "name": "ITSC GmbH",
+        "short": "ITSC",
+        "domain": "itsc.de",
+        "url": "https://www.itsc.de",
+        "linkedin_search": "ITSC GmbH",
+        "linkedin_url": "https://www.linkedin.com/company/itsc-gmbh/",
+    },
+]
