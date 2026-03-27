@@ -1,6 +1,6 @@
 """
 Top 31 gesetzliche Krankenkassen in Deutschland (Account-Liste).
-Domains bereinigt (ohne Karriere-Pfade).
+linkedin_url: LinkedIn-Unternehmensseite (für PhantomBuster Company Posts Scraper)
 """
 
 KASSEN = [
@@ -10,6 +10,7 @@ KASSEN = [
         "domain": "tk.de",
         "url": "https://www.tk.de",
         "linkedin_search": "Techniker Krankenkasse",
+        "linkedin_url": "https://www.linkedin.com/company/techniker-krankenkasse/",
     },
     {
         "name": "BARMER",
@@ -17,6 +18,7 @@ KASSEN = [
         "domain": "barmer.de",
         "url": "https://www.barmer.de",
         "linkedin_search": "BARMER Krankenkasse",
+        "linkedin_url": "https://www.linkedin.com/company/barmer/",
     },
     {
         "name": "DAK-Gesundheit",
@@ -24,6 +26,7 @@ KASSEN = [
         "domain": "dak.de",
         "url": "https://www.dak.de",
         "linkedin_search": "DAK-Gesundheit",
+        "linkedin_url": "https://www.linkedin.com/company/dak-gesundheit/",
     },
     {
         "name": "IKK classic",
@@ -31,6 +34,7 @@ KASSEN = [
         "domain": "ikk-classic.de",
         "url": "https://www.ikk-classic.de",
         "linkedin_search": "IKK classic",
+        "linkedin_url": "https://www.linkedin.com/company/ikk-classic/",
     },
     {
         "name": "Kaufmännische Krankenkasse (KKH)",
@@ -38,6 +42,7 @@ KASSEN = [
         "domain": "kkh.de",
         "url": "https://www.kkh.de",
         "linkedin_search": "KKH Kaufmännische Krankenkasse",
+        "linkedin_url": "https://www.linkedin.com/company/kkh-kaufmannische-krankenkasse/",
     },
     {
         "name": "Siemens-Betriebskrankenkasse (SBK)",
@@ -45,6 +50,7 @@ KASSEN = [
         "domain": "sbk.org",
         "url": "https://www.sbk.org",
         "linkedin_search": "SBK Siemens-Betriebskrankenkasse",
+        "linkedin_url": "https://www.linkedin.com/company/sbk-siemens-betriebskrankenkasse/",
     },
     {
         "name": "hkk (Handelskrankenkasse)",
@@ -52,6 +58,7 @@ KASSEN = [
         "domain": "hkk.de",
         "url": "https://www.hkk.de",
         "linkedin_search": "hkk Handelskrankenkasse",
+        "linkedin_url": "https://www.linkedin.com/company/hkk/",
     },
     {
         "name": "BKK firmus",
@@ -59,6 +66,7 @@ KASSEN = [
         "domain": "bkk-firmus.de",
         "url": "https://www.bkk-firmus.de",
         "linkedin_search": "BKK firmus",
+        "linkedin_url": "https://www.linkedin.com/company/bkk-firmus/",
     },
     {
         "name": "Mobil Krankenkasse",
@@ -66,6 +74,7 @@ KASSEN = [
         "domain": "mobil-krankenkasse.de",
         "url": "https://www.mobil-krankenkasse.de",
         "linkedin_search": "Mobil Krankenkasse",
+        "linkedin_url": "https://www.linkedin.com/company/mobil-krankenkasse/",
     },
     {
         "name": "Audi BKK",
@@ -73,6 +82,7 @@ KASSEN = [
         "domain": "audibkk.de",
         "url": "https://audibkk.de",
         "linkedin_search": "Audi BKK",
+        "linkedin_url": "https://www.linkedin.com/company/audi-bkk/",
     },
     {
         "name": "VIACTIV Krankenkasse",
@@ -80,6 +90,7 @@ KASSEN = [
         "domain": "viactiv.de",
         "url": "https://www.viactiv.de",
         "linkedin_search": "VIACTIV Krankenkasse",
+        "linkedin_url": "https://www.linkedin.com/company/viactiv-krankenkasse/",
     },
     {
         "name": "IKK Südwest",
@@ -87,6 +98,7 @@ KASSEN = [
         "domain": "ikk-suedwest.de",
         "url": "https://www.ikk-suedwest.de",
         "linkedin_search": "IKK Südwest",
+        "linkedin_url": "https://www.linkedin.com/company/ikk-sudwest/",
     },
     {
         "name": "HEK – Hanseatische Krankenkasse",
@@ -94,6 +106,7 @@ KASSEN = [
         "domain": "hek.de",
         "url": "https://www.hek.de",
         "linkedin_search": "HEK Hanseatische Krankenkasse",
+        "linkedin_url": "https://www.linkedin.com/company/hek-hanseatische-krankenkasse/",
     },
     {
         "name": "Pronova BKK",
@@ -101,6 +114,7 @@ KASSEN = [
         "domain": "pronovabkk.de",
         "url": "https://www.pronovabkk.de",
         "linkedin_search": "Pronova BKK",
+        "linkedin_url": "https://www.linkedin.com/company/pronovabkk/",
     },
     {
         "name": "BAHN-BKK",
@@ -108,6 +122,7 @@ KASSEN = [
         "domain": "bahn-bkk.de",
         "url": "https://www.bahn-bkk.de",
         "linkedin_search": "BAHN-BKK",
+        "linkedin_url": "https://www.linkedin.com/company/bahn-bkk/",
     },
     {
         "name": "mkk – meine krankenkasse",
@@ -115,6 +130,7 @@ KASSEN = [
         "domain": "meine-krankenkasse.de",
         "url": "https://www.meine-krankenkasse.de",
         "linkedin_search": "mkk meine krankenkasse",
+        "linkedin_url": "https://www.linkedin.com/company/mkk-meine-krankenkasse/",
     },
     {
         "name": "BIG direkt gesund",
@@ -122,6 +138,7 @@ KASSEN = [
         "domain": "big-direkt.de",
         "url": "https://www.big-direkt.de",
         "linkedin_search": "BIG direkt gesund",
+        "linkedin_url": "https://www.linkedin.com/company/big-direkt-gesund/",
     },
     {
         "name": "mhplus BKK",
@@ -129,6 +146,7 @@ KASSEN = [
         "domain": "mhplus-krankenkasse.de",
         "url": "https://www.mhplus-krankenkasse.de",
         "linkedin_search": "mhplus BKK",
+        "linkedin_url": "https://www.linkedin.com/company/mhplus-bkk/",
     },
     {
         "name": "IKK gesund plus",
@@ -136,6 +154,7 @@ KASSEN = [
         "domain": "ikk-gesundplus.de",
         "url": "https://www.ikk-gesundplus.de",
         "linkedin_search": "IKK gesund plus",
+        "linkedin_url": "https://www.linkedin.com/company/ikk-gesund-plus/",
     },
     {
         "name": "Novitas BKK",
@@ -143,6 +162,7 @@ KASSEN = [
         "domain": "novitas-bkk.de",
         "url": "https://www.novitas-bkk.de",
         "linkedin_search": "Novitas BKK",
+        "linkedin_url": "https://www.linkedin.com/company/novitas-bkk/",
     },
     {
         "name": "vivida BKK",
@@ -150,6 +170,7 @@ KASSEN = [
         "domain": "vividabkk.de",
         "url": "https://www.vividabkk.de",
         "linkedin_search": "vivida BKK",
+        "linkedin_url": "https://www.linkedin.com/company/vivida-bkk/",
     },
     {
         "name": "BKK Linde",
@@ -157,6 +178,7 @@ KASSEN = [
         "domain": "bkk-linde.de",
         "url": "https://www.bkk-linde.de",
         "linkedin_search": "BKK Linde",
+        "linkedin_url": "https://www.linkedin.com/company/bkk-linde/",
     },
     {
         "name": "IK – Die Innovationskasse",
@@ -164,6 +186,7 @@ KASSEN = [
         "domain": "die-ik.de",
         "url": "https://www.die-ik.de",
         "linkedin_search": "IK Innovationskasse",
+        "linkedin_url": "https://www.linkedin.com/company/die-ik/",
     },
     {
         "name": "Bosch BKK",
@@ -171,6 +194,7 @@ KASSEN = [
         "domain": "bosch-bkk.de",
         "url": "https://www.bosch-bkk.de",
         "linkedin_search": "Bosch BKK",
+        "linkedin_url": "https://www.linkedin.com/company/bosch-bkk/",
     },
     {
         "name": "IKK Brandenburg und Berlin",
@@ -178,6 +202,7 @@ KASSEN = [
         "domain": "ikkbb.de",
         "url": "https://www.ikkbb.de",
         "linkedin_search": "IKK Brandenburg Berlin",
+        "linkedin_url": "https://www.linkedin.com/company/ikk-bb/",
     },
     {
         "name": "SECURVITA BKK",
@@ -185,6 +210,7 @@ KASSEN = [
         "domain": "securvita.de",
         "url": "https://www.securvita.de",
         "linkedin_search": "SECURVITA BKK",
+        "linkedin_url": "https://www.linkedin.com/company/securvita-bkk/",
     },
     {
         "name": "Debeka BKK",
@@ -192,6 +218,7 @@ KASSEN = [
         "domain": "debeka-bkk.de",
         "url": "https://www.debeka-bkk.de",
         "linkedin_search": "Debeka BKK",
+        "linkedin_url": "https://www.linkedin.com/company/debeka-bkk/",
     },
     {
         "name": "Salus BKK",
@@ -199,6 +226,7 @@ KASSEN = [
         "domain": "salus-bkk.de",
         "url": "https://www.salus-bkk.de",
         "linkedin_search": "Salus BKK",
+        "linkedin_url": "https://www.linkedin.com/company/salus-bkk/",
     },
     {
         "name": "R+V BKK",
@@ -206,6 +234,7 @@ KASSEN = [
         "domain": "ruv-bkk.de",
         "url": "https://www.ruv-bkk.de",
         "linkedin_search": "R+V BKK",
+        "linkedin_url": "https://www.linkedin.com/company/r-v-bkk/",
     },
     {
         "name": "BKK Gildemeister Seidensticker",
@@ -213,6 +242,7 @@ KASSEN = [
         "domain": "bkkgs.de",
         "url": "https://www.bkkgs.de",
         "linkedin_search": "BKK Gildemeister Seidensticker",
+        "linkedin_url": "https://www.linkedin.com/company/bkk-gildemeister-seidensticker/",
     },
     {
         "name": "BKK Pfalz",
@@ -220,5 +250,6 @@ KASSEN = [
         "domain": "bkk-pfalz.de",
         "url": "https://www.bkk-pfalz.de",
         "linkedin_search": "BKK Pfalz",
+        "linkedin_url": "https://www.linkedin.com/company/bkk-pfalz/",
     },
 ]
