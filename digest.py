@@ -307,27 +307,38 @@ def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
         "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
     }
 
-    # Setze li_at-Cookie und lade LinkedIn-Startseite → LinkedIn setzt JSESSIONID zurück
-    session.cookies.set("li_at", li_at, domain=".linkedin.com", path="/")
-    jsessionid = None
-    try:
-        resp = session.get(
-            "https://www.linkedin.com/feed/",
-            headers=BASE_HEADERS,
-            timeout=20,
-            allow_redirects=True,
-        )
-        jsessionid = session.cookies.get("JSESSIONID")
-    except Exception as e:
-        print(f"   ⚠️  LinkedIn Session-Init fehlgeschlagen: {e}", file=sys.stderr)
-        return ""
+    # JSESSIONID: direkt aus Env (bevorzugt) oder via Session-Init holen
+    jsessionid = os.environ.get("LINKEDIN_JSESSIONID", "").strip()
+
+    if jsessionid:
+        print(f"   ✅ JSESSIONID aus Secret gesetzt.")
+    else:
+        # Fallback: JSESSIONID via LinkedIn-Request holen (kann in CI geblockt werden)
+        session.cookies.set("li_at", li_at, domain=".linkedin.com", path="/")
+        try:
+            resp = session.get(
+                "https://www.linkedin.com/feed/",
+                headers=BASE_HEADERS,
+                timeout=20,
+                allow_redirects=True,
+            )
+            print(f"   LinkedIn Session-Init: HTTP {resp.status_code}, URL={resp.url}")
+            jsessionid = session.cookies.get("JSESSIONID") or ""
+            print(f"   JSESSIONID erhalten: {'ja' if jsessionid else 'nein'}")
+        except Exception as e:
+            print(f"   ⚠️  LinkedIn Session-Init fehlgeschlagen: {e}", file=sys.stderr)
+            return ""
 
     if not jsessionid:
         print(
-            "   ⚠️  LinkedIn: kein JSESSIONID erhalten – li_at abgelaufen oder ungültig.",
+            "   ⚠️  LinkedIn: kein JSESSIONID – bitte LINKEDIN_JSESSIONID als Secret setzen.",
             file=sys.stderr,
         )
         return ""
+
+    # Cookies für alle Requests setzen
+    session.cookies.set("li_at", li_at, domain=".linkedin.com", path="/")
+    session.cookies.set("JSESSIONID", jsessionid, domain=".linkedin.com", path="/")
 
     # csrf-token = JSESSIONID ohne umgebende Anführungszeichen
     csrf_token = jsessionid.strip('"')
