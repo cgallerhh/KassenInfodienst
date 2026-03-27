@@ -886,6 +886,8 @@ def build_html_email(report_content: str, today: date) -> str:
 
     kw = today.isocalendar()[1]
 
+    # Gmail-kompatibles HTML: kein flex, kein ::before, kein position:absolute
+    # Topbar via <table>, Listen via border-left statt Pseudo-Elemente
     return f"""<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -893,54 +895,23 @@ def build_html_email(report_content: str, today: date) -> str:
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>KassenInfodienst KW {kw}</title>
   <style>
-    /* ── Reset ── */
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-
     body {{
+      margin: 0;
+      padding: 24px 8px 48px;
       background: #f1f5f9;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
       color: #1e293b;
       font-size: 15px;
       line-height: 1.7;
-      -webkit-font-smoothing: antialiased;
     }}
-
-    /* ── Wrapper ── */
-    .wrapper {{
-      max-width: 660px;
-      margin: 32px auto;
-      padding: 0 16px 48px;
-    }}
-
-    /* ── Topbar ── */
-    .topbar {{
-      background: #0f172a;
-      border-radius: 14px 14px 0 0;
-      padding: 6px 28px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }}
-    .topbar-label {{
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: #64748b;
-    }}
-    .topbar-kw {{
-      font-size: 11px;
-      font-weight: 600;
-      color: #38bdf8;
-      letter-spacing: 1px;
-    }}
+    .wrapper  {{ max-width: 640px; margin: 0 auto; }}
 
     /* ── Header ── */
     .header {{
       background: #0f172a;
-      padding: 36px 36px 30px;
+      padding: 32px 36px 28px;
       text-align: center;
-      border-top: 1px solid #1e293b;
+      border-radius: 14px 14px 0 0;
     }}
     .header-eyebrow {{
       font-size: 11px;
@@ -948,31 +919,32 @@ def build_html_email(report_content: str, today: date) -> str:
       letter-spacing: 3px;
       text-transform: uppercase;
       color: #38bdf8;
-      margin-bottom: 10px;
+      margin: 0 0 10px;
     }}
     .header h1 {{
-      font-size: 30px;
+      font-size: 28px;
       font-weight: 800;
       color: #f8fafc;
-      letter-spacing: -0.8px;
-      margin-bottom: 10px;
+      margin: 0 0 8px;
     }}
     .header-sub {{
       font-size: 13px;
       color: #64748b;
+      margin: 0 0 20px;
     }}
-    .header-divider {{
-      margin: 24px auto 0;
-      width: 48px;
-      height: 3px;
-      background: linear-gradient(90deg, #38bdf8, #818cf8);
-      border-radius: 99px;
+    .header-meta {{
+      font-size: 12px;
+      color: #475569;
+      border-top: 1px solid #1e293b;
+      padding-top: 14px;
+      margin-top: 4px;
     }}
+    .header-meta span {{ color: #38bdf8; font-weight: 600; }}
 
     /* ── Content card ── */
     .card {{
       background: #ffffff;
-      padding: 40px 40px;
+      padding: 36px 36px;
       border-radius: 0 0 14px 14px;
       border: 1px solid #e2e8f0;
       border-top: none;
@@ -980,70 +952,61 @@ def build_html_email(report_content: str, today: date) -> str:
 
     /* ── Section headings (##) ── */
     h2 {{
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 700;
       color: #0f172a;
-      margin: 44px 0 14px;
-      padding: 14px 18px;
+      margin: 40px 0 12px;
+      padding: 13px 16px;
       background: #f8fafc;
       border-left: 4px solid #38bdf8;
       border-radius: 0 8px 8px 0;
-      letter-spacing: -0.2px;
     }}
     h2:first-child {{ margin-top: 0; }}
 
     /* ── Sub-headings (###) ── */
     h3 {{
-      font-size: 13px;
+      font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 1.2px;
-      color: #64748b;
-      margin: 24px 0 8px;
+      letter-spacing: 1.4px;
+      color: #94a3b8;
+      margin: 22px 0 6px;
     }}
 
-    /* ── Prose ── */
-    p {{ margin: 10px 0; color: #334155; }}
+    p {{ margin: 8px 0; color: #334155; }}
 
+    /* ── Listen: border-left (Gmail-safe) ── */
     ul {{
-      padding-left: 0;
       list-style: none;
-      margin: 6px 0 16px;
+      padding: 0;
+      margin: 4px 0 14px;
     }}
     li {{
-      padding: 8px 12px 8px 36px;
-      position: relative;
-      border-radius: 6px;
-      margin-bottom: 2px;
+      padding: 8px 12px 8px 14px;
+      border-left: 3px solid #38bdf8;
+      border-radius: 0 5px 5px 0;
+      margin-bottom: 3px;
       color: #334155;
+      background: #f8fafc;
+      font-size: 14px;
     }}
-    li:nth-child(odd)  {{ background: #f8fafc; }}
-    li:nth-child(even) {{ background: #fff; }}
-    li::before {{
-      content: "›";
-      position: absolute;
-      left: 14px;
-      color: #38bdf8;
-      font-weight: 700;
-      font-size: 16px;
-      line-height: 1.5;
+    li:nth-child(even) {{
+      border-left-color: #cbd5e1;
+      background: #ffffff;
     }}
 
     a {{
       color: #2563eb;
       text-decoration: none;
       font-weight: 500;
-      border-bottom: 1px solid #bfdbfe;
     }}
-    a:hover {{ color: #1d4ed8; border-bottom-color: #2563eb; }}
-
     strong {{ color: #0f172a; font-weight: 600; }}
-    em {{ color: #64748b; font-style: normal; font-size: 13px; }}
+    em     {{ color: #64748b; font-style: normal; font-size: 13px; }}
 
-    /* ── Blockquotes (Hinweise, Flurfunk) ── */
+    /* ── Blockquotes (Flurfunk) ── */
     blockquote {{
-      margin: 16px 0;
-      padding: 14px 20px;
+      margin: 14px 0;
+      padding: 13px 18px;
       background: #fefce8;
       border-left: 4px solid #eab308;
       border-radius: 0 8px 8px 0;
@@ -1051,73 +1014,55 @@ def build_html_email(report_content: str, today: date) -> str:
       font-size: 14px;
     }}
 
-    /* ── Horizontal rule ── */
     hr {{
       border: none;
       border-top: 1px solid #e2e8f0;
-      margin: 32px 0;
+      margin: 28px 0;
     }}
 
-    /* ── Tables ── */
-    table {{
+    /* ── Inhaltstabellen (aus Markdown) ── */
+    table.content-table {{
       border-collapse: collapse;
       width: 100%;
-      margin: 16px 0;
+      margin: 14px 0;
       font-size: 13px;
-      border-radius: 8px;
-      overflow: hidden;
     }}
-    th {{
+    table.content-table th {{
       background: #0f172a;
       color: #94a3b8;
-      padding: 10px 14px;
+      padding: 9px 13px;
       text-align: left;
       font-size: 11px;
       font-weight: 700;
       letter-spacing: 1px;
       text-transform: uppercase;
     }}
-    td {{
-      padding: 10px 14px;
+    table.content-table td {{
+      padding: 9px 13px;
       border-bottom: 1px solid #f1f5f9;
       color: #334155;
     }}
-    tr:last-child td {{ border-bottom: none; }}
-    tr:nth-child(even) td {{ background: #f8fafc; }}
-
-    /* ── Divider between kassen-blocks ── */
-    .section-end {{
-      display: block;
-      height: 1px;
-      background: linear-gradient(90deg, #e2e8f0, transparent);
-      margin: 28px 0;
-    }}
+    table.content-table tr:nth-child(even) td {{ background: #f8fafc; }}
 
     /* ── Footer ── */
     .footer {{
       text-align: center;
-      margin-top: 24px;
-      padding: 0 16px;
+      margin-top: 20px;
       color: #94a3b8;
       font-size: 12px;
       line-height: 2;
     }}
-    .footer a {{ color: #64748b; border-bottom: none; }}
+    .footer a {{ color: #64748b; }}
   </style>
 </head>
 <body>
   <div class="wrapper">
 
-    <div class="topbar">
-      <span class="topbar-label">GKV Marktintelligenz</span>
-      <span class="topbar-kw">KW&nbsp;{kw}&nbsp;·&nbsp;{date_str}</span>
-    </div>
-
     <div class="header">
-      <div class="header-eyebrow">Wöchentlicher Branchenbrief</div>
+      <p class="header-eyebrow">Wöchentlicher Branchenbrief</p>
       <h1>KassenInfodienst</h1>
-      <div class="header-sub">Nur was zählt &mdash; kuratiert, analysiert, direkt.</div>
-      <div class="header-divider"></div>
+      <p class="header-sub">Nur was zählt &mdash; kuratiert, analysiert, direkt.</p>
+      <p class="header-meta">GKV Marktintelligenz &nbsp;&bull;&nbsp; <span>KW&nbsp;{kw}</span> &nbsp;&bull;&nbsp; {date_str}</p>
     </div>
 
     <div class="card">
