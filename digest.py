@@ -372,10 +372,10 @@ def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
 
         # Schritt 1: Company-ID via Voyager-API holen
         try:
+            # Versuch 1: Voyager companies API (ohne projection)
             lookup_url = (
                 "https://www.linkedin.com/voyager/api/organization/companies"
                 f"?q=universalName&universalName={urllib.parse.quote(slug)}"
-                "&projection=(entityUrn,name)"
             )
             r = session.get(lookup_url, headers=API_HEADERS, timeout=12)
             print(f"   🔍 {kasse['short']} Slug={slug} → HTTP {r.status_code}")
@@ -388,7 +388,21 @@ def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
                     company_id = urn.split(":")[-1] if ":" in urn else None
                     print(f"      Company-ID: {company_id}")
             else:
-                print(f"      ⚠️  Fehler: {r.text[:200]}")
+                print(f"      ⚠️  Fehler companies API: {r.text[:200]}")
+                # Versuch 2: entities/organizations endpoint
+                entities_url = (
+                    "https://www.linkedin.com/voyager/api/entities/organizations"
+                    f"?q=universalName&universalName={urllib.parse.quote(slug)}"
+                )
+                r2 = session.get(entities_url, headers=API_HEADERS, timeout=12)
+                print(f"      entities API → HTTP {r2.status_code}")
+                if r2.status_code == 200:
+                    data2 = r2.json()
+                    elements = data2.get("elements", [])
+                    if elements:
+                        urn = elements[0].get("entityUrn", "")
+                        company_id = urn.split(":")[-1] if ":" in urn else None
+                        print(f"      Company-ID (entities): {company_id}")
             time.sleep(0.5)
         except Exception as e:
             print(f"      ⚠️  Company-Lookup Exception: {e}")
