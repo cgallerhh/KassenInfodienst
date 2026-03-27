@@ -835,6 +835,7 @@ Schreibe auf Deutsch."""
     with client.messages.stream(
         model="claude-sonnet-4-6",
         max_tokens=2000,
+        system=system_prompt_with_cache(SYSTEM_PROMPT),
         messages=[{"role": "user", "content": prompt}],
     ) as stream:
         for text in stream.text_stream:
