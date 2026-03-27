@@ -359,129 +359,91 @@ def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
     all_findings: list[str] = []
     post_count = 0
 
+    import re as _re
+
     for kasse in kassen:
-        # Slug aus der linkedin_url extrahieren: ".../company/techniker-krankenkasse/" → "techniker-krankenkasse"
-        raw_url = kasse.get("linkedin_url", "")
-        if "/company/" not in raw_url:
-            continue
-        slug = raw_url.split("/company/")[-1].strip("/")
-        if not slug:
-            continue
-
-        company_id = None
-
-        # Schritt 1: Company-ID via Voyager-API holen
-        try:
-            # Versuch 1: Voyager companies API (ohne projection)
-            lookup_url = (
-                "https://www.linkedin.com/voyager/api/organization/companies"
-                f"?q=universalName&universalName={urllib.parse.quote(slug)}"
-            )
-            r = session.get(lookup_url, headers=API_HEADERS, timeout=12)
-            print(f"   🔍 {kasse['short']} Slug={slug} → HTTP {r.status_code}")
-            if r.status_code == 200:
-                data = r.json()
-                elements = data.get("elements", [])
-                print(f"      Company-Lookup: {len(elements)} Treffer")
-                if elements:
-                    urn = elements[0].get("entityUrn", "")
-                    company_id = urn.split(":")[-1] if ":" in urn else None
-                    print(f"      Company-ID: {company_id}")
-            else:
-                print(f"      ⚠️  Fehler companies API: {r.text[:200]}")
-
-            # Fallback: Company-ID aus HTML-Seite extrahieren
-            if not company_id:
-                import re as _re
-                page_url = f"https://www.linkedin.com/company/{slug}/"
-                try:
-                    pr = session.get(page_url, headers=BASE_HEADERS, timeout=15, allow_redirects=True)
-                    print(f"      HTML-Fallback HTTP {pr.status_code}, URL={pr.url}")
-                    if pr.status_code == 200:
-                        matches = _re.findall(r'"urn:li:company:(\d+)"', pr.text)
-                        if not matches:
-                            matches = _re.findall(r'"companyId"\s*:\s*(\d+)', pr.text)
-                        if not matches:
-                            matches = _re.findall(r'urn%3Ali%3Acompany%3A(\d+)', pr.text)
-                        if matches:
-                            company_id = matches[0]
-                            print(f"      Company-ID (HTML): {company_id}")
-                        else:
-                            print(f"      ⚠️  Keine Company-ID in HTML gefunden")
-                except Exception as e2:
-                    print(f"      ⚠️  HTML-Fallback Exception: {e2}")
-            time.sleep(0.5)
-        except Exception as e:
-            print(f"      ⚠️  Company-Lookup Exception: {e}")
-
-        if not company_id:
-            print(f"      ⏭️  Keine Company-ID – überspringe {kasse['short']}")
-            continue
-
-        # Schritt 2: Aktuelle Unternehmens-Posts laden
+        # Content-Search: Posts die den Kassennamen erwähnen (findet Personen UND Company-Posts)
+        keywords = urllib.parse.quote(kasse["linkedin_search"])
+        search_url = (
+            "https://www.linkedin.com/voyager/api/search/blended"
+            f"?keywords={keywords}&origin=GLOBAL_SEARCH_HEADER&q=all"
+            "&filters=List(resultType-%3ECONTENT)"
+            "&start=0&count=10"
+        )
         findings: list[str] = []
         try:
-            org_urn = urllib.parse.quote(f"urn:li:organization:{company_id}")
-            posts_url = (
-                "https://www.linkedin.com/voyager/api/feed/updatesV2"
-                f"?companyIds={org_urn}&count=8&start=0"
-            )
-            r = session.get(posts_url, headers=API_HEADERS, timeout=15)
-            print(f"      Posts-API HTTP {r.status_code}")
+            r = session.get(search_url, headers=API_HEADERS, timeout=15)
+            print(f"   🔍 {kasse['short']} Content-Search → HTTP {r.status_code}")
             if r.status_code == 200:
                 data = r.json()
-                # Unterstütze beide Antwort-Formate: {"elements": [...]} und {"data": {"elements": [...]}}
+                # Ergebnisse können in "elements" oder "data.elements" liegen
                 elements = data.get("elements") or data.get("data", {}).get("elements", [])
-                print(f"      {len(elements)} Elemente empfangen (cutoff: {cutoff_ts_ms})")
+                print(f"      {len(elements)} Treffer")
 
                 for el in elements:
-                    # Zeitstempel prüfen
+                    # Zeitstempel
                     created = el.get("created", {})
                     ts = created.get("time", 0) if isinstance(created, dict) else int(created or 0)
-                    print(f"        Element ts={ts} cutoff={cutoff_ts_ms} keys={list(el.keys())[:6]}")
                     if ts and ts < cutoff_ts_ms:
                         continue
 
-                    # Post-Text
-                    value = el.get("value", {})
-                    update = value.get("com.linkedin.voyager.feed.render.UpdateV2", {})
-                    commentary = update.get("commentary", {})
-                    text_obj = commentary.get("text", {})
-                    text = (text_obj.get("text", "") if isinstance(text_obj, dict) else str(text_obj)).strip()
-                    if not text or len(text) < 30:
+                    # Post-Text aus verschiedenen möglichen Strukturen
+                    text = ""
+                    for path in [
+                        ["commentary", "text", "text"],
+                        ["text", "text"],
+                        ["description", "text"],
+                        ["headline", "text"],
+                    ]:
+                        node = el
+                        for key in path:
+                            node = node.get(key, {}) if isinstance(node, dict) else {}
+                        if isinstance(node, str) and len(node) > 20:
+                            text = node
+                            break
+                    # Auch in "image"-freien Update-Strukturen suchen
+                    if not text:
+                        raw = str(el)
+                        match = _re.search(r'"text"\s*:\s*"([^"]{30,})"', raw)
+                        if match:
+                            text = match.group(1)
+                    if not text:
                         continue
 
                     # Autor
-                    actor = update.get("actor", {})
-                    name_obj = actor.get("name", {}) if isinstance(actor, dict) else {}
-                    actor_name = (name_obj.get("text", "") if isinstance(name_obj, dict) else str(name_obj)).strip()
+                    actor_name = ""
+                    for path in [["actor", "name", "text"], ["authorV2", "name"], ["title", "text"]]:
+                        node = el
+                        for key in path:
+                            node = node.get(key, {}) if isinstance(node, dict) else {}
+                        if isinstance(node, str) and node:
+                            actor_name = node
+                            break
                     if not actor_name:
                         actor_name = kasse["short"]
 
                     # Reaktionen
-                    social = update.get("socialDetail", {})
-                    counts = social.get("totalSocialActivityCounts", {}) if isinstance(social, dict) else {}
-                    likes = counts.get("numLikes", 0) if isinstance(counts, dict) else 0
-                    comments = counts.get("numComments", 0) if isinstance(counts, dict) else 0
+                    counts = el.get("socialDetail", {}).get("totalSocialActivityCounts", {}) or {}
+                    likes = counts.get("numLikes", 0)
+                    comments = counts.get("numComments", 0)
 
-                    post_date = ""
-                    if ts:
-                        post_date = datetime.fromtimestamp(ts / 1000).strftime("%d.%m.%Y")
-
-                    line = f"  - [{post_date}] **{actor_name}**: {text[:280].strip()}"
+                    post_date = datetime.fromtimestamp(ts / 1000).strftime("%d.%m.%Y") if ts else "?"
+                    line = f"  - [{post_date}] **{actor_name}**: {text[:300].strip()}"
                     if likes or comments:
                         line += f" _(👍 {likes} · 💬 {comments})_"
                     findings.append(line)
 
+            else:
+                print(f"      ⚠️  {r.text[:200]}")
             time.sleep(0.5)
         except Exception as e:
-            print(f"      ⚠️  Posts-Exception: {e}")
+            print(f"      ⚠️  Search-Exception: {e}")
 
         if findings:
-            all_findings.append(f"**{kasse['short']}** (LinkedIn direkt):")
-            all_findings.extend(findings[:4])
+            all_findings.append(f"**{kasse['short']}** (LinkedIn):")
+            all_findings.extend(findings[:5])
             all_findings.append("")
-            post_count += len(findings[:4])
+            post_count += len(findings[:5])
 
     if not all_findings:
         return ""
