@@ -42,7 +42,7 @@ except ImportError:
 from kassen import KASSEN
 
 BATCH_SIZE = 1          # Eine Kasse pro API-Call (verhindert parallele Search-Floods)
-MAX_SEARCHES = 2        # 2 News-Suchen pro Kasse (LinkedIn kommt via Voyager-API)
+MAX_SEARCHES = 3        # 2 News-Suchen + 1 LinkedIn-Fallback
 BATCH_PAUSE = 8         # Sekunden Pause zwischen Calls (kurz halten – Rate-Limit reset ist schnell)
 MAX_RETRIES = 1         # Nur 1 Wiederholung (spart Zeit bei Fehlern)
 API_TIMEOUT = 90        # Timeout pro API-Call in Sekunden – bei Hänger schnell abbrechen
@@ -556,16 +556,22 @@ def research_batch(client: anthropic.Anthropic, batch: list[dict], tage: int) ->
         user_prompt = f"""Recherchiere News-Highlights für: **{k['name']}** | {k['url']}
 Suchfenster: {period_start} – {period_end}
 
-Führe genau 2 Web-Suchen durch (NUR Nachrichtenquellen – LinkedIn wird separat via API abgefragt):
+Führe genau 3 Web-Suchen durch:
 
 SUCHE 1 – Aktuelle News & Pressemeldungen:
 "{k['name']}" (KI OR Automatisierung OR Fusion OR Stellenabbau OR Ausschreibung OR Personalwechsel OR Vorstand) after:{after_date}
-→ Nachrichten, Pressemitteilungen, Fachmedien (GKV-Spitzenverband, aerzteblatt.de, krankenhaus.de, heise.de)
-  NUR Inhalte mit konkretem Datum im Suchfenster {period_start}–{period_end}.
+→ Nachrichten, Pressemitteilungen, Fachmedien. NUR Inhalte mit Datum im Suchfenster {period_start}–{period_end}.
 
 SUCHE 2 – Branchenmedien & Fachpresse:
 "{k['name']}" site:gkv-spitzenverband.de OR site:aok.de OR site:vdek.com OR site:heise.de after:{after_date}
 → Offizielle Verlautbarungen, IT-Projekte, Kooperationen. Datum prüfen.
+
+SUCHE 3 – LinkedIn (Fallback, Google-Index):
+site:linkedin.com "{k['linkedin_search']}" Vorstand OR CIO OR Digitalisierung OR Leiter
+→ HINWEIS: Google indexiert LinkedIn mit 4-8 Wochen Verzögerung. Posts aus {period_start}–{period_end}
+  erscheinen hier erst später. Trotzdem suchen: Falls Posts aus dem Fenster indexiert sind → ausführlich
+  berichten (Autor, Kernaussage, Datum). Posts von VOR dem Fenster → ignorieren.
+  Diese Suche ist Fallback – primäre LinkedIn-Daten kommen ggf. separat via direkter API.
 
 ZEITREGEL: Nur Inhalte aus {period_start}–{period_end} berichten.
 Bekannte Vorstandsänderungen (2025, 1.1.2026, 1.4.2026): IGNORIEREN.
