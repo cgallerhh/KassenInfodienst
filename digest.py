@@ -389,20 +389,27 @@ def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
                     print(f"      Company-ID: {company_id}")
             else:
                 print(f"      ⚠️  Fehler companies API: {r.text[:200]}")
-                # Versuch 2: entities/organizations endpoint
-                entities_url = (
-                    "https://www.linkedin.com/voyager/api/entities/organizations"
-                    f"?q=universalName&universalName={urllib.parse.quote(slug)}"
-                )
-                r2 = session.get(entities_url, headers=API_HEADERS, timeout=12)
-                print(f"      entities API → HTTP {r2.status_code}")
-                if r2.status_code == 200:
-                    data2 = r2.json()
-                    elements = data2.get("elements", [])
-                    if elements:
-                        urn = elements[0].get("entityUrn", "")
-                        company_id = urn.split(":")[-1] if ":" in urn else None
-                        print(f"      Company-ID (entities): {company_id}")
+
+            # Fallback: Company-ID aus HTML-Seite extrahieren
+            if not company_id:
+                import re as _re
+                page_url = f"https://www.linkedin.com/company/{slug}/"
+                try:
+                    pr = session.get(page_url, headers=BASE_HEADERS, timeout=15, allow_redirects=True)
+                    print(f"      HTML-Fallback HTTP {pr.status_code}, URL={pr.url}")
+                    if pr.status_code == 200:
+                        matches = _re.findall(r'"urn:li:company:(\d+)"', pr.text)
+                        if not matches:
+                            matches = _re.findall(r'"companyId"\s*:\s*(\d+)', pr.text)
+                        if not matches:
+                            matches = _re.findall(r'urn%3Ali%3Acompany%3A(\d+)', pr.text)
+                        if matches:
+                            company_id = matches[0]
+                            print(f"      Company-ID (HTML): {company_id}")
+                        else:
+                            print(f"      ⚠️  Keine Company-ID in HTML gefunden")
+                except Exception as e2:
+                    print(f"      ⚠️  HTML-Fallback Exception: {e2}")
             time.sleep(0.5)
         except Exception as e:
             print(f"      ⚠️  Company-Lookup Exception: {e}")
