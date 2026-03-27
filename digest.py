@@ -246,6 +246,110 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# LinkedIn via LinkdAPI (100 Free Credits, dann kostenpflichtig)
+# ---------------------------------------------------------------------------
+
+def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
+    """Sucht LinkedIn-Posts via LinkdAPI (linkdapi.com).
+
+    Findet Posts von Personen UND Unternehmen die den Kassennamen erwähnen.
+    Benötigt: LINKDAPI_KEY Umgebungsvariable.
+    Kostenmodell: 1 Credit pro Suche. 100 Free Credits beim Start.
+    """
+    api_key = os.environ.get("LINKDAPI_KEY", "").strip()
+    if not api_key:
+        return ""
+
+    try:
+        from linkdapi import LinkdAPI
+    except ImportError:
+        print("   ⚠️  linkdapi nicht installiert – pip install linkdapi", file=sys.stderr)
+        return ""
+
+    today = date.today()
+    cutoff = today - timedelta(days=tage)
+    cutoff_ts_ms = int(datetime(cutoff.year, cutoff.month, cutoff.day).timestamp()) * 1000
+
+    client = LinkdAPI(api_key)
+    all_findings: list[str] = []
+    post_count = 0
+
+    for kasse in kassen:
+        try:
+            result = client.search_posts(
+                keyword=kasse["linkedin_search"],
+                date_posted="past-month",
+                sort_by="recent",
+            )
+        except Exception as e:
+            print(f"   ⚠️  LinkdAPI Fehler {kasse['short']}: {e}", file=sys.stderr)
+            continue
+
+        if not isinstance(result, dict) or not result.get("success"):
+            print(f"   ⚠️  LinkdAPI kein Erfolg für {kasse['short']}: {result}", file=sys.stderr)
+            continue
+
+        posts = result.get("data", {})
+        if isinstance(posts, dict):
+            posts = posts.get("posts") or posts.get("elements") or posts.get("items") or []
+
+        findings: list[str] = []
+        for post in posts:
+            if not isinstance(post, dict):
+                continue
+
+            # Zeitstempel prüfen
+            ts = post.get("postedAt") or post.get("createdAt") or post.get("timestamp") or 0
+            if isinstance(ts, str):
+                try:
+                    ts = int(ts)
+                except ValueError:
+                    ts = 0
+            if ts and ts < cutoff_ts_ms:
+                continue
+
+            # Text
+            text = (
+                post.get("text") or post.get("content") or
+                post.get("commentary") or post.get("description") or ""
+            ).strip()
+            if not text or len(text) < 20:
+                continue
+
+            # Autor
+            author = post.get("author") or post.get("actor") or {}
+            if isinstance(author, dict):
+                actor_name = author.get("name") or author.get("fullName") or kasse["short"]
+            else:
+                actor_name = str(author) or kasse["short"]
+
+            # Reaktionen
+            likes = post.get("numLikes") or post.get("likes") or 0
+            comments = post.get("numComments") or post.get("comments") or 0
+
+            post_date = datetime.fromtimestamp(ts / 1000).strftime("%d.%m.%Y") if ts else "?"
+            line = f"  - [{post_date}] **{actor_name}**: {text[:300].strip()}"
+            if likes or comments:
+                line += f" _(👍 {likes} · 💬 {comments})_"
+            findings.append(line)
+
+        if findings:
+            all_findings.append(f"**{kasse['short']}** (LinkedIn):")
+            all_findings.extend(findings[:5])
+            all_findings.append("")
+            post_count += len(findings[:5])
+
+        time.sleep(0.3)  # Rate-Limit schonen
+
+    if not all_findings:
+        return ""
+
+    lines = [f"## 📣 LinkedIn-Posts ({post_count} Treffer via LinkdAPI)\n"]
+    lines.extend(all_findings)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # LinkedIn & RSS-Feed Scraping
 # ---------------------------------------------------------------------------
 
@@ -1084,23 +1188,31 @@ def main() -> None:
             print(f"   ⏳ Pause {BATCH_PAUSE}s ...")
             time.sleep(BATCH_PAUSE)
 
-    # LinkedIn-Posts scrapen: Voyager-API (li_at) bevorzugt, RSS als Fallback
+    # LinkedIn-Posts scrapen: LinkdAPI > Voyager-API > RSS-Fallback
     linkedin_data = ""
-    if os.environ.get("LINKEDIN_LI_AT"):
+    if os.environ.get("LINKDAPI_KEY"):
+        print("🔗 LinkedIn via LinkdAPI ...")
+        linkedin_data = scrape_linkedin_linkdapi(kassen, args.tage)
+        if linkedin_data:
+            post_count = linkedin_data.count("\n  - [")
+            print(f"   ✅ {post_count} LinkedIn-Posts via LinkdAPI.")
+        else:
+            print("   ℹ️  Keine LinkedIn-Posts via LinkdAPI (Credits leer oder kein Treffer).")
+    elif os.environ.get("LINKEDIN_LI_AT"):
         print("🔗 LinkedIn Voyager-API (li_at-Session) ...")
         linkedin_data = scrape_linkedin_voyager(kassen, args.tage)
         if linkedin_data:
             post_count = linkedin_data.count("\n  - [")
-            print(f"   ✅ {post_count} LinkedIn-Posts direkt abgerufen.")
+            print(f"   ✅ {post_count} LinkedIn-Posts via Voyager-API.")
         else:
-            print("   ℹ️  Keine LinkedIn-Posts im Zeitraum (oder li_at abgelaufen).")
+            print("   ℹ️  Keine LinkedIn-Posts (li_at abgelaufen oder CI-Block).")
     else:
-        print("🔗 LinkedIn RSS-Fallback (kein LINKEDIN_LI_AT gesetzt) ...")
+        print("🔗 LinkedIn web_search Fallback (kein API-Key gesetzt) ...")
         linkedin_data = scrape_linkedin_rss(kassen, args.tage)
         if linkedin_data:
-            print(f"   ✅ LinkedIn-RSS-Findings gesammelt.")
+            print("   ✅ LinkedIn-RSS-Findings gesammelt.")
         else:
-            print("   ℹ️  Keine LinkedIn-RSS-Findings im Zeitraum.")
+            print("   ℹ️  Keine LinkedIn-RSS-Findings.")
     if linkedin_data:
         all_research_parts.insert(0, linkedin_data)
     print()

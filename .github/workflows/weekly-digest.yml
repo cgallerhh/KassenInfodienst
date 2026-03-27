@@ -52,6 +52,7 @@ jobs:
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
           LINKEDIN_LI_AT: ${{ secrets.LINKEDIN_LI_AT }}
           LINKEDIN_JSESSIONID: ${{ secrets.LINKEDIN_JSESSIONID }}
+          LINKDAPI_KEY: ${{ secrets.LINKDAPI_KEY }}
         run: |
           # Kassen-Filter aus manuellem Aufruf
           KASSEN_ARG=""
