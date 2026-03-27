@@ -362,25 +362,62 @@ def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
     import re as _re
 
     for kasse in kassen:
-        # Content-Search: Posts die den Kassennamen erwähnen (findet Personen UND Company-Posts)
         keywords = urllib.parse.quote(kasse["linkedin_search"])
-        search_url = (
-            "https://www.linkedin.com/voyager/api/search/blended"
-            f"?keywords={keywords}&origin=GLOBAL_SEARCH_HEADER&q=all"
-            "&filters=List(resultType-%3ECONTENT)"
-            "&start=0&count=10"
-        )
-        findings: list[str] = []
-        try:
-            r = session.get(search_url, headers=API_HEADERS, timeout=15)
-            print(f"   🔍 {kasse['short']} Content-Search → HTTP {r.status_code}")
-            if r.status_code == 200:
-                data = r.json()
-                # Ergebnisse können in "elements" oder "data.elements" liegen
-                elements = data.get("elements") or data.get("data", {}).get("elements", [])
-                print(f"      {len(elements)} Treffer")
 
-                for el in elements:
+        # Mehrere Endpoint-Varianten probieren (LinkedIn ändert API-Pfade)
+        candidate_urls = [
+            # Variante 1: blended mit Content-Filter
+            (
+                "https://www.linkedin.com/voyager/api/search/blended"
+                f"?keywords={keywords}&q=all"
+                "&filters=List(resultType-%3ECONTENT)"
+                "&start=0&count=10"
+            ),
+            # Variante 2: blended ohne Filter (gibt mixed results, aber Posts sind dabei)
+            (
+                "https://www.linkedin.com/voyager/api/search/blended"
+                f"?keywords={keywords}&q=all&start=0&count=10"
+            ),
+            # Variante 3: hits endpoint
+            (
+                "https://www.linkedin.com/voyager/api/search/hits"
+                f"?keywords={keywords}&q=all&type=CONTENT&count=10"
+            ),
+            # Variante 4: feed keyword search
+            (
+                "https://www.linkedin.com/voyager/api/feed/updates"
+                f"?q=keywords&keywords={keywords}&count=10"
+            ),
+        ]
+
+        raw_elements = []
+        for url in candidate_urls:
+            try:
+                r = session.get(url, headers=API_HEADERS, timeout=15)
+                print(f"   🔍 {kasse['short']} → {r.status_code} ({url.split('voyager/api/')[1][:40]})")
+                if r.status_code == 200:
+                    data = r.json()
+                    elements = (
+                        data.get("elements")
+                        or data.get("data", {}).get("elements", [])
+                        or []
+                    )
+                    # blended liefert Gruppen; Content-Elemente extrahieren
+                    if elements and isinstance(elements[0], dict) and "elements" in elements[0]:
+                        flat = []
+                        for group in elements:
+                            flat.extend(group.get("elements", []))
+                        elements = flat
+                    if elements:
+                        print(f"      ✅ {len(elements)} Elemente")
+                        raw_elements = elements
+                        break
+                time.sleep(0.3)
+            except Exception as e:
+                print(f"      ⚠️  {e}")
+
+        findings: list[str] = []
+        for el in raw_elements:
                     # Zeitstempel
                     created = el.get("created", {})
                     ts = created.get("time", 0) if isinstance(created, dict) else int(created or 0)
@@ -433,11 +470,7 @@ def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
                         line += f" _(👍 {likes} · 💬 {comments})_"
                     findings.append(line)
 
-            else:
-                print(f"      ⚠️  {r.text[:200]}")
-            time.sleep(0.5)
-        except Exception as e:
-            print(f"      ⚠️  Search-Exception: {e}")
+        time.sleep(0.5)
 
         if findings:
             all_findings.append(f"**{kasse['short']}** (LinkedIn):")
