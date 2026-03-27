@@ -367,18 +367,23 @@ def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
                 "&projection=(entityUrn,name)"
             )
             r = session.get(lookup_url, headers=API_HEADERS, timeout=12)
+            print(f"   🔍 {kasse['short']} Slug={slug} → HTTP {r.status_code}")
             if r.status_code == 200:
                 data = r.json()
                 elements = data.get("elements", [])
+                print(f"      Company-Lookup: {len(elements)} Treffer")
                 if elements:
                     urn = elements[0].get("entityUrn", "")
-                    # "urn:li:company:12345" → "12345"
                     company_id = urn.split(":")[-1] if ":" in urn else None
+                    print(f"      Company-ID: {company_id}")
+            else:
+                print(f"      ⚠️  Fehler: {r.text[:200]}")
             time.sleep(0.5)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"      ⚠️  Company-Lookup Exception: {e}")
 
         if not company_id:
+            print(f"      ⏭️  Keine Company-ID – überspringe {kasse['short']}")
             continue
 
         # Schritt 2: Aktuelle Unternehmens-Posts laden
@@ -390,15 +395,18 @@ def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
                 f"?companyIds={org_urn}&count=8&start=0"
             )
             r = session.get(posts_url, headers=API_HEADERS, timeout=15)
+            print(f"      Posts-API HTTP {r.status_code}")
             if r.status_code == 200:
                 data = r.json()
                 # Unterstütze beide Antwort-Formate: {"elements": [...]} und {"data": {"elements": [...]}}
                 elements = data.get("elements") or data.get("data", {}).get("elements", [])
+                print(f"      {len(elements)} Elemente empfangen (cutoff: {cutoff_ts_ms})")
 
                 for el in elements:
                     # Zeitstempel prüfen
                     created = el.get("created", {})
                     ts = created.get("time", 0) if isinstance(created, dict) else int(created or 0)
+                    print(f"        Element ts={ts} cutoff={cutoff_ts_ms} keys={list(el.keys())[:6]}")
                     if ts and ts < cutoff_ts_ms:
                         continue
 
@@ -434,8 +442,8 @@ def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
                     findings.append(line)
 
             time.sleep(0.5)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"      ⚠️  Posts-Exception: {e}")
 
         if findings:
             all_findings.append(f"**{kasse['short']}** (LinkedIn direkt):")
