@@ -880,7 +880,9 @@ def build_html_email(report_content: str, today: date) -> str:
         extensions=["tables", "fenced_code", "sane_lists"],
     )
 
-    date_str = today.strftime("%d. %B %Y")
+    MONATE = ["Januar","Februar","März","April","Mai","Juni",
+              "Juli","August","September","Oktober","November","Dezember"]
+    date_str = f"{today.day}. {MONATE[today.month - 1]} {today.year}"
 
     kw = today.isocalendar()[1]
 
