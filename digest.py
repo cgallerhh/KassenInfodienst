@@ -736,12 +736,23 @@ def send_email(report_path: Path, summary: str, today: date) -> None:
     html = build_html_email(summary or report_content, today)
     msg.attach(MIMEText(html, "html", "utf-8"))
 
-    print(f"📧 Sende HTML-E-Mail an {recipient} ...")
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(gmail_user, gmail_password)
-        server.send_message(msg)
-    print("   ✅ E-Mail gesendet.")
+    print(f"📧 Sende HTML-E-Mail an {recipient} (von: {gmail_user}) ...")
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.set_debuglevel(0)
+            server.starttls()
+            server.login(gmail_user, gmail_password)
+            server.send_message(msg)
+        print("   ✅ E-Mail gesendet.")
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"   ❌ SMTP Login fehlgeschlagen (App-Passwort prüfen): {e}", file=sys.stderr)
+        raise
+    except smtplib.SMTPException as e:
+        print(f"   ❌ SMTP-Fehler beim Senden: {e}", file=sys.stderr)
+        raise
+    except Exception as e:
+        print(f"   ❌ Unerwarteter Fehler beim E-Mail-Versand: {e}", file=sys.stderr)
+        raise
 
 
 # ---------------------------------------------------------------------------
