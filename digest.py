@@ -1026,13 +1026,17 @@ def main() -> None:
                 if attempt <= MAX_RETRIES:
                     time.sleep(15)
                 else:
-                    research = ""  # Kasse einfach überspringen
+                    research = ""
             except Exception as e:
+                err_str = str(e)
+                is_overload = "overloaded" in err_str.lower() or "529" in err_str
+                wait = 45 if is_overload else 15
                 print(f"   ⚠️  Fehler (Versuch {attempt}): {e}", file=sys.stderr)
                 if attempt <= MAX_RETRIES:
-                    time.sleep(15)
+                    print(f"   ⏳ Warte {wait}s vor Retry ...", file=sys.stderr)
+                    time.sleep(wait)
                 else:
-                    research = ""  # Kasse überspringen statt zu blockieren
+                    research = ""
 
         # Nur echte Highlights sammeln (KEINE_HIGHLIGHTS ignorieren)
         if research.strip() and "KEINE_HIGHLIGHTS" not in research:
