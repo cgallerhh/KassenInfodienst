@@ -41,27 +41,20 @@
 
     {
       "parameters": {
-        "method": "GET",
-        "url": "https://linkdapi.com/api/v1/search/posts?keyword=GKV%20Krankenkasse%20Digitalisierung%20IT&datePosted=past-month&sortBy=date_posted",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "options": { "timeout": 15000 }
+        "mode": "runOnceForAllItems",
+        "jsCode": "// 15 GKV-Kassen + BITMARCK + ITSC\nreturn [\n  { json: { authorCompany: 'Techniker Krankenkasse' } },\n  { json: { authorCompany: 'BARMER Krankenkasse' } },\n  { json: { authorCompany: 'DAK-Gesundheit' } },\n  { json: { authorCompany: 'IKK classic' } },\n  { json: { authorCompany: 'KKH Kaufmännische Krankenkasse' } },\n  { json: { authorCompany: 'SBK Siemens-Betriebskrankenkasse' } },\n  { json: { authorCompany: 'hkk Handelskrankenkasse' } },\n  { json: { authorCompany: 'BKK firmus' } },\n  { json: { authorCompany: 'Mobil Krankenkasse' } },\n  { json: { authorCompany: 'Audi BKK' } },\n  { json: { authorCompany: 'VIACTIV Krankenkasse' } },\n  { json: { authorCompany: 'IKK Südwest' } },\n  { json: { authorCompany: 'HEK Hanseatische Krankenkasse' } },\n  { json: { authorCompany: 'Pronova BKK' } },\n  { json: { authorCompany: 'BAHN-BKK' } },\n  { json: { authorCompany: 'BITMARCK' } },\n  { json: { authorCompany: 'ITSC GmbH' } }\n];"
       },
-      "credentials": {
-        "httpHeaderAuth": { "id": "2AZJHqeS0X9NUG2A", "name": "linkdAPI Key" }
-      },
-      "id": "linkdapi-keyword",
-      "name": "LinkedIn Keyword-Suche",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "onError": "continueRegularOutput",
-      "position": [300, -80]
+      "id": "linkedin-suchbegriffe",
+      "name": "LinkedIn Suchbegriffe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [100, -40]
     },
 
     {
       "parameters": {
         "method": "GET",
-        "url": "https://linkdapi.com/api/v1/search/posts?authorCompany=BITMARCK&datePosted=past-month&sortBy=date_posted",
+        "url": "=https://linkdapi.com/api/v1/search/posts?authorCompany={{ encodeURIComponent($json.authorCompany) }}&datePosted=past-month&sortBy=date_posted",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": { "timeout": 15000 }
@@ -71,6 +64,37 @@
       },
       "id": "linkdapi-author",
       "name": "LinkedIn Author-Suche",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "position": [300, -80]
+    },
+
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// LinkedIn API-Antworten aufbereiten\nconst items = $input.all();\nconst result = [];\nfor (const item of items) {\n  const posts = item.json.data || item.json.posts || item.json.elements || [];\n  for (const post of Array.isArray(posts) ? posts : []) {\n    result.push({ json: {\n      _source: 'LinkedIn',\n      title: (post.text || '').substring(0, 120),\n      text: post.text || '',\n      link: post.url || post.postUrl || post.shareUrl || '',\n      postedAt: post.postedAt || post.date || '',\n      author: post.author?.fullName || post.authorName || '',\n      company: post.author?.headline || '',\n      likes: post.totalReactionCount || post.likes || 0\n    }});\n  }\n}\nreturn result.length > 0 ? result : [];"
+      },
+      "id": "linkedin-flatten",
+      "name": "LinkedIn Posts aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, -80]
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://linkdapi.com/api/v1/search/posts?keyword=GKV%20Krankenkasse%20Digitalisierung%20Fusionen&datePosted=past-month&sortBy=date_posted",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": { "timeout": 15000 }
+      },
+      "credentials": {
+        "httpHeaderAuth": { "id": "2AZJHqeS0X9NUG2A", "name": "linkdAPI Key" }
+      },
+      "id": "linkdapi-keyword",
+      "name": "LinkedIn Keyword-Suche",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "onError": "continueRegularOutput",
@@ -332,11 +356,13 @@
   ],
 
   "connections": {
-    "Täglich 06:00": { "main": [[{ "node": "TED Ausschreibungen", "type": "main", "index": 0 }, { "node": "RSS: GKV-Spitzenverband", "type": "main", "index": 0 }, { "node": "RSS: vdek", "type": "main", "index": 0 }, { "node": "RSS: Ärzteblatt", "type": "main", "index": 0 }, { "node": "RSS: Heise", "type": "main", "index": 0 }, { "node": "RSS: GKV Gesundheitspolitik", "type": "main", "index": 0 }, { "node": "LinkedIn Keyword-Suche", "type": "main", "index": 0 }, { "node": "LinkedIn Author-Suche", "type": "main", "index": 0 }]] },
+    "Täglich 06:00": { "main": [[{ "node": "TED Ausschreibungen", "type": "main", "index": 0 }, { "node": "RSS: GKV-Spitzenverband", "type": "main", "index": 0 }, { "node": "RSS: vdek", "type": "main", "index": 0 }, { "node": "RSS: Ärzteblatt", "type": "main", "index": 0 }, { "node": "RSS: Heise", "type": "main", "index": 0 }, { "node": "RSS: GKV Gesundheitspolitik", "type": "main", "index": 0 }, { "node": "LinkedIn Suchbegriffe", "type": "main", "index": 0 }, { "node": "LinkedIn Keyword-Suche", "type": "main", "index": 0 }]] },
+    "LinkedIn Suchbegriffe": { "main": [[{ "node": "LinkedIn Author-Suche", "type": "main", "index": 0 }]] },
+    "LinkedIn Author-Suche": { "main": [[{ "node": "LinkedIn Posts aufbereiten", "type": "main", "index": 0 }]] },
+    "LinkedIn Posts aufbereiten": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
     "Freitags 08:00 (Weekly)": { "main": [[{ "node": "TED Ausschreibungen", "type": "main", "index": 0 }, { "node": "RSS: GKV-Spitzenverband", "type": "main", "index": 0 }, { "node": "RSS: Ärzteblatt", "type": "main", "index": 0 }]] },
     "TED Ausschreibungen": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
     "LinkedIn Keyword-Suche": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
-    "LinkedIn Author-Suche": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
     "RSS: GKV-Spitzenverband": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
     "RSS: vdek": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
     "RSS: Ärzteblatt": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
