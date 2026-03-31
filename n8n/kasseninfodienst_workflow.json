@@ -267,7 +267,7 @@
         "additionalFields": { "parse_mode": "Markdown" }
       },
       "credentials": {
-        "telegramApi": { "id": "5vv1nx9BFd8YrpDj", "name": "Telegram account" }
+        "telegramApi": { "id": "w8WwOfpucfusDAlj", "name": "Telegram Kasseninfodienst" }
       },
       "id": "telegram-notify",
       "name": "Telegram Zusammenfassung",
@@ -316,7 +316,7 @@
         "additionalFields": { "parse_mode": "Markdown" }
       },
       "credentials": {
-        "telegramApi": { "id": "5vv1nx9BFd8YrpDj", "name": "Telegram account" }
+        "telegramApi": { "id": "w8WwOfpucfusDAlj", "name": "Telegram Kasseninfodienst" }
       },
       "id": "breaking-telegram",
       "name": "Sofort-Alert via Telegram",
