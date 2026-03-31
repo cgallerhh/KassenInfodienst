@@ -75,7 +75,7 @@
     },
 
     {
-      "parameters": { "url": "https://www.gkv-spitzenverband.de/service/presse/pressemitteilungen/rss_pressemitteilungen.xml" },
+      "parameters": { "url": "https://news.google.com/rss/search?q=GKV-Spitzenverband&hl=de&gl=DE&ceid=DE:de" },
       "id": "rss-gkv",
       "name": "RSS: GKV-Spitzenverband",
       "type": "n8n-nodes-base.rssFeedRead",
@@ -83,7 +83,7 @@
       "position": [300, 160]
     },
     {
-      "parameters": { "url": "https://www.vdek.com/presse/rss.xml" },
+      "parameters": { "url": "https://news.google.com/rss/search?q=vdek+Ersatzkassen&hl=de&gl=DE&ceid=DE:de" },
       "id": "rss-vdek",
       "name": "RSS: vdek",
       "type": "n8n-nodes-base.rssFeedRead",
@@ -107,9 +107,9 @@
       "position": [300, 460]
     },
     {
-      "parameters": { "url": "https://www.bfarm.de/SiteGlobals/Frontend/RSSFeed/nachrichten.xml" },
+      "parameters": { "url": "https://news.google.com/rss/search?q=GKV+Krankenkasse+Gesundheitspolitik&hl=de&gl=DE&ceid=DE:de" },
       "id": "rss-bafin",
-      "name": "RSS: BaFin / BMG",
+      "name": "RSS: GKV Gesundheitspolitik",
       "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1,
       "position": [300, 560]
