@@ -308,8 +308,8 @@
     {
       "parameters": {
         "chatId": "8604500773",
-        "text": "=🏥 *KassenInfodienst* – {{ new Date().toLocaleDateString('de-DE') }}\n\n{{ $json.newsletter_text.substring(0, 800) }}...\n\n_Vollständige Mail wurde versendet._",
-        "additionalFields": { "parse_mode": "Markdown" }
+        "text": "=🏥 KassenInfodienst – {{ new Date().toLocaleDateString('de-DE') }}\n\n{{ $json.newsletter_text.replace(/[*_`\\[\\]]/g, '').substring(0, 800) }}...\n\nMail versendet.",
+        "additionalFields": {}
       },
       "credentials": {
         "telegramApi": { "id": "w8WwOfpucfusDAlj", "name": "Telegram Kasseninfodienst" }
