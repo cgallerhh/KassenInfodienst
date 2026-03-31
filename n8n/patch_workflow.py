@@ -6,7 +6,8 @@ Patcht den KassenInfodienst n8n Workflow:
 - Lockert LinkedIn Posts aufbereiten Filter drastisch
 - Setzt Sonnet max_tokens auf 2000
 - Aktualisiert Breaking News RSS + Filter
-- Verknüpft LinkedIn Keyword-Suchen korrekt zu Posts aufbereiten
+- NEU: Ersetzt alle LinkedIn-Keyword-Nodes durch Query-Generator + API-Call
+  (gezielte Suche: keyword + authorCompany + authorJobTitle statt boolean)
 """
 import json, sys, urllib.request, urllib.error
 
@@ -36,24 +37,24 @@ print("1. Workflow laden...")
 wf = api("GET", f"/workflows/{WORKFLOW_ID}")
 nodes = wf["nodes"]
 connections = wf.get("connections", {})
-
 print(f"   {len(nodes)} Nodes geladen")
 
-# ─── NODE UPDATES ───────────────────────────────────────────────
+# ─── CODES ──────────────────────────────────────────────────────────
 
-# Nodes die entfernt werden (Haiku-Chain)
-REMOVE_IDS = {"claude-haiku-score", "extract-haiku-text"}
-
-# Neue Codes
-NEW_LINKEDIN_FLATTEN = """// LinkedIn Posts aus API-Response extrahieren (kein strenger Filter mehr)
+NEW_LINKEDIN_FLATTEN = """// LinkedIn Posts aus API-Response extrahieren (permissiver Filter)
 const items = $input.all();
 const result = [];
 const seenTexts = new Set();
 
 for (const item of items) {
+  // Error-Antworten überspringen
+  if (item.json.error) continue;
+
   let posts = [];
-  if (item.json.data && Array.isArray(item.json.data.posts)) {
+  if (item.json.data && item.json.data.posts && Array.isArray(item.json.data.posts)) {
     posts = item.json.data.posts;
+  } else if (item.json.data && item.json.data.posts && item.json.data.posts.items) {
+    posts = item.json.data.posts.items;
   } else if (Array.isArray(item.json.posts)) {
     posts = item.json.posts;
   } else if (item.json.text || item.json.commentary || item.json.content) {
@@ -91,8 +92,57 @@ for (const item of items) {
 }
 return result;"""
 
+NEW_LINKEDIN_QUERY_GEN = """// LinkedIn Query Generator – gezielte Suchen statt boolean keywords
+// Company IDs aus linkdAPI /search/companies aufgelöst
+const BASE = "https://linkdapi.com/api/v1/search/posts";
+const C = {
+  bitmarck: "955964",
+  itsc:     "8195481",
+  gematik:  "125822",
+  dak:      "42928985",
+  tk:       "41317",
+  barmer:   "18012268",
+  hkk:      "10699871",
+  hek:      "36667598",
+  kkh:      "39196",
+  ikk:      "1412986",
+  viactiv:  "12414104"
+};
+
+const queries = [
+  // IT-Dienstleister
+  { keyword: "ePA",           authorCompany: C.gematik },
+  { keyword: "Telematik",     authorCompany: C.gematik },
+  { keyword: "Cloud",         authorCompany: C.bitmarck, authorJobTitle: "CIO" },
+  { keyword: "Atlassian",     authorCompany: C.bitmarck },
+  { keyword: "SAP",           authorCompany: C.bitmarck },
+  { keyword: "Digitalisierung", authorCompany: C.bitmarck },
+  { keyword: "IT-Strategie",  authorCompany: C.itsc },
+  { keyword: "Cloud",         authorCompany: C.itsc },
+  // GKV Kassen – Entscheider
+  { keyword: "ePA",           authorCompany: C.dak,    authorJobTitle: "Vorstand" },
+  { keyword: "Digitalisierung", authorCompany: C.tk,   authorJobTitle: "CIO" },
+  { keyword: "NIS2",          authorCompany: C.barmer },
+  { keyword: "ePA",           authorCompany: C.tk },
+  // GKV-weit nach Rolle
+  { keyword: "Digitalisierung", authorJobTitle: "CIO" },
+  { keyword: "NIS2",            authorJobTitle: "Vorstand" },
+  { keyword: "ePA",             authorJobTitle: "CIO" },
+];
+
+return queries.map(q => {
+  const p = new URLSearchParams({
+    keyword:    q.keyword,
+    sortBy:     "relevance",
+    datePosted: "past-week",
+    count:      "10"
+  });
+  if (q.authorCompany)  p.append("authorCompany",  q.authorCompany);
+  if (q.authorJobTitle) p.append("authorJobTitle", q.authorJobTitle);
+  return { json: { url: `${BASE}?${p.toString()}`, ...q } };
+});"""
+
 NEW_FORMAT_FOR_CLAUDE = """// JS-Relevanz-Filter: ersetzt Haiku, spart ~80% Tokens
-// LinkedIn-Posts immer behalten, andere nach Score filtern (Top 20)
 const items = $input.all();
 const linkedinItems = items.filter(i => i.json._source === 'LinkedIn');
 const otherItems = items.filter(i => i.json._source !== 'LinkedIn');
@@ -170,60 +220,120 @@ return fresh;"""
 
 NEW_BREAKING_RSS_URL = "https://news.google.com/rss/search?q=%22Krankenkasse%22+%28%22Fusion%22+OR+%22Vorstandswechsel%22+OR+%22BITMARCK%22+OR+%22ITSC%22+OR+%22gematik%22+OR+%22Ausschreibung%22+OR+%22Providerwechsel%22+OR+%22Insolvenz%22%29&hl=de&gl=DE&ceid=DE:de"
 
-SONNET_SYSTEM = ("Du bist Chefredakteur des GKV-Branchenbriefs KassenInfodienst im Stil des dfg. "
-"Investigativ, meinungsstark. Christian Galler direkt ansprechen. B2B-IT-Vertrieb GKV-Markt.\\n\\n"
-"ABSOLUTE REGELN:\\n"
-"- Nur Fakten aus Rohdaten. Keine Erfindungen.\\n"
-"- Nur Sektionen mit echten Daten ausgeben.\\n"
-"- Kein Intro, Outro, Fülltext.\\n\\n"
-"LINKEDIN-RADAR PFLICHTCHECK:\\n"
-"Pruefe Zeile LinkedIn-Posts: X in der STATISTIK.\\n"
-"X=0: Schreibe NUR: Heute keine LinkedIn-Posts verfuegbar. Sonst NICHTS. Kein Kommentar zur Stille.\\n"
-"X>0: Jeden [LinkedIn]-Eintrag zeigen:\\n"
-"**Name** (Titel, Firma) · Datum · Reaktionen\\n"
-"> Woertliches Zitat aus contentSnippet\\n"
-"1-2 Saetze Einordnung.\\n\\n"
-"SEKTIONEN: LinkedIn-Radar | Wer kommt/geht | Ausschreibungen | Markt & Politik | Action Items\\n\\n"
-"Max. 2000 Woerter. Deutsch.")
+# ─── IDs / Namen der zu entfernenden LinkedIn-Nodes ─────────────────
+# Alle HTTP-Request-Nodes die linkdapi /search/posts aufrufen werden entfernt
+# Plus die alte Suchbegriffe-Code-Node
+REMOVE_IDS_FIXED = {"claude-haiku-score", "extract-haiku-text", "linkedin-suchbegriffe"}
 
-# ─── NODES PATCHEN ───────────────────────────────────────────────
+# ─── NEUE NODES ─────────────────────────────────────────────────────
+# Position: neben den alten LinkedIn-Nodes (wird ggf. in n8n manuell verschoben)
+LINKEDIN_QUERY_GEN_NODE = {
+    "id": "linkedin-query-gen",
+    "name": "LinkedIn Query Generator",
+    "type": "n8n-nodes-base.code",
+    "typeVersion": 2,
+    "position": [460, 540],
+    "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": NEW_LINKEDIN_QUERY_GEN
+    }
+}
+
+LINKEDIN_API_CALL_NODE = {
+    "id": "linkedin-api-call",
+    "name": "LinkedIn API Call",
+    "type": "n8n-nodes-base.httpRequest",
+    "typeVersion": 4.2,
+    "position": [680, 540],
+    "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+            "timeout": 30000,
+            "response": {
+                "response": {
+                    "neverError": True
+                }
+            }
+        }
+    },
+    "credentials": {
+        "httpHeaderAuth": {
+            "id": "2AZJHqeS0X9NUG2A",
+            "name": "linkdAPI Key"
+        }
+    },
+    "onError": "continueRegularOutput"
+}
+
+# ─── NODES PATCHEN ───────────────────────────────────────────────────
 updated = 0
 new_nodes = []
+removed_names = []   # Namen entfernter Nodes für Connection-Cleanup
+trigger_node_name = None
+
+def is_linkedin_search_node(node):
+    """True wenn HTTP-Request-Node der linkdapi /search/posts aufruft."""
+    if node.get("type") != "n8n-nodes-base.httpRequest":
+        return False
+    params = node.get("parameters", {})
+    url = params.get("url", "")
+    if isinstance(url, str):
+        return ("linkdapi.com/api/v1/search/posts" in url or
+                "linkd.app/api/v1/search/posts" in url)
+    return False
+
+linkedin_api_added = False
 
 for node in nodes:
-    nid = node.get("id", "")
+    nid  = node.get("id", "")
     name = node.get("name", "")
+    ntype = node.get("type", "")
 
-    # Haiku-Nodes entfernen
-    if nid in REMOVE_IDS:
+    # Trigger-Node merken (für Connection-Update)
+    if ntype == "n8n-nodes-base.scheduleTrigger" or "06:00" in name or "trigger" in name.lower():
+        trigger_node_name = name
+
+    # Feste IDs entfernen (Haiku + alte Suchbegriffe)
+    if nid in REMOVE_IDS_FIXED:
         print(f"   ENTFERNT: {name}")
+        removed_names.append(name)
         continue
 
-    # LinkedIn Posts aufbereiten
+    # Alle linkdapi-Search-Nodes entfernen (inkl. manuell hinzugefügte)
+    if is_linkedin_search_node(node):
+        print(f"   ENTFERNT (linkdAPI Search): {name}")
+        removed_names.append(name)
+        # Neue Nodes einmal an dieser Stelle einfügen
+        if not linkedin_api_added:
+            new_nodes.append(LINKEDIN_QUERY_GEN_NODE)
+            new_nodes.append(LINKEDIN_API_CALL_NODE)
+            linkedin_api_added = True
+            print("   HINZUGEFÜGT: LinkedIn Query Generator")
+            print("   HINZUGEFÜGT: LinkedIn API Call")
+        continue
+
+    # LinkedIn Posts aufbereiten (linkedin-flatten)
     if nid == "linkedin-flatten":
         node["parameters"]["jsCode"] = NEW_LINKEDIN_FLATTEN
-        print(f"   UPDATED: {name} (lockerer Filter)")
+        print(f"   UPDATED: {name} (permissiver Filter)")
         updated += 1
 
-    # Rohdaten für Claude formatieren → JS-Filter
+    # format-for-claude → JS-Filter
     elif nid == "format-for-claude":
         node["parameters"]["jsCode"] = NEW_FORMAT_FOR_CLAUDE
         node["parameters"]["mode"] = "runOnceForAllItems"
-        print(f"   UPDATED: {name} (JS-Relevanz-Filter, kein Haiku mehr)")
+        print(f"   UPDATED: {name} (JS-Relevanz-Filter)")
         updated += 1
 
-    # Sonnet: max_tokens reduzieren + neuer Prompt
+    # Sonnet: max_tokens
     elif nid == "claude-sonnet-newsletter":
-        body_str = node["parameters"]["jsonBody"]
-        try:
-            # Parse the expression to update max_tokens
-            body_str = body_str.replace('"max_tokens": 6000', '"max_tokens": 2000')
-            body_str = body_str.replace("'max_tokens': 6000", "'max_tokens': 2000")
-            body_str = body_str.replace('max_tokens: 6000', 'max_tokens: 2000')
-            body_str = body_str.replace('"max_tokens":6000', '"max_tokens":2000')
-            node["parameters"]["jsonBody"] = body_str
-        except:
-            pass
+        body_str = node["parameters"].get("jsonBody", "")
+        body_str = body_str.replace('"max_tokens": 6000', '"max_tokens": 2000')
+        body_str = body_str.replace('"max_tokens":6000',  '"max_tokens":2000')
+        node["parameters"]["jsonBody"] = body_str
         print(f"   UPDATED: {name} (max_tokens → 2000)")
         updated += 1
 
@@ -233,57 +343,80 @@ for node in nodes:
         print(f"   UPDATED: {name} (neue RSS URL)")
         updated += 1
 
-    # Breaking News Filter: IF → Code
+    # Breaking News Filter → Code Node
     elif nid == "breaking-filter":
-        node["type"] = "n8n-nodes-base.code"
+        node["type"]        = "n8n-nodes-base.code"
         node["typeVersion"] = 2
-        node["parameters"] = {
-            "mode": "runOnceForAllItems",
-            "jsCode": NEW_BREAKING_FILTER
-        }
-        node["name"] = "Breaking: Aktuell + GKV-relevant?"
-        print(f"   UPDATED: {name} → Code Node mit GKV-Filter")
+        node["parameters"]  = {"mode": "runOnceForAllItems", "jsCode": NEW_BREAKING_FILTER}
+        node["name"]        = "Breaking: Aktuell + GKV-relevant?"
+        print(f"   UPDATED: {name} → Code Node")
         updated += 1
 
     new_nodes.append(node)
 
-print(f"\n   {updated} Nodes geändert, {len(nodes)-len(new_nodes)} entfernt")
+# Falls kein linkdapi-Node gefunden (erster Run oder abweichende IDs)
+if not linkedin_api_added:
+    new_nodes.append(LINKEDIN_QUERY_GEN_NODE)
+    new_nodes.append(LINKEDIN_API_CALL_NODE)
+    print("   HINZUGEFÜGT: LinkedIn Query Generator (am Ende)")
+    print("   HINZUGEFÜGT: LinkedIn API Call (am Ende)")
 
-# ─── CONNECTIONS UPDATEN ──────────────────────────────────────────
+print(f"\n   {updated} Nodes geändert, {len(nodes)-len(new_nodes)+2} entfernt")
+
+# ─── CONNECTIONS UPDATEN ─────────────────────────────────────────────
 print("\n2. Connections aktualisieren...")
 
-# Haiku-Chain entfernen, format-for-claude direkt zu Sonnet
-if "Rohdaten für Claude formatieren" in connections:
-    connections["Rohdaten für Claude formatieren"] = {
-        "main": [[{"node": "Claude Sonnet: Newsletter schreiben", "type": "main", "index": 0}]]
-    }
-    print("   format-for-claude → Sonnet (Haiku überbrückt)")
+# Entfernte Nodes aus Connections löschen
+for removed in removed_names:
+    if removed in connections:
+        del connections[removed]
+        print(f"   Connection entfernt: {removed}")
 
-# Haiku-Connections entfernen
+# Haiku-Chain entfernen, format-for-claude direkt zu Sonnet
+for name_key in list(connections.keys()):
+    if "Claude formatieren" in name_key or name_key == "format-for-claude":
+        connections[name_key] = {
+            "main": [[{"node": "Claude Sonnet: Newsletter schreiben", "type": "main", "index": 0}]]
+        }
+        print(f"   {name_key} → Sonnet (Haiku überbrückt)")
+
+# Haiku-eigene Connections entfernen
 for haiku_name in ["Claude Haiku: Relevanz-Scoring", "Haiku-Text extrahieren"]:
     if haiku_name in connections:
         del connections[haiku_name]
         print(f"   Connection entfernt: {haiku_name}")
 
-# LinkedIn Keyword-Suche → Posts aufbereiten (statt direkt zu Merge)
-if "LinkedIn Keyword-Suche" in connections:
-    connections["LinkedIn Keyword-Suche"] = {
-        "main": [[{"node": "LinkedIn Posts aufbereiten", "type": "main", "index": 0}]]
-    }
-    print("   LinkedIn Keyword-Suche → Posts aufbereiten")
-
-# Breaking News Filter umbenannt
+# Breaking News Filter Connection umbenennen
 if "Neu in letzten 35min?" in connections:
     connections["Breaking: Aktuell + GKV-relevant?"] = connections.pop("Neu in letzten 35min?")
     print("   Breaking Filter Connection aktualisiert")
 
-# ─── WORKFLOW DEAKTIVIEREN ────────────────────────────────────────
+# Neue LinkedIn Chain: Query Generator → API Call → Posts aufbereiten
+connections["LinkedIn Query Generator"] = {
+    "main": [[{"node": "LinkedIn API Call", "type": "main", "index": 0}]]
+}
+connections["LinkedIn API Call"] = {
+    "main": [[{"node": "LinkedIn Posts aufbereiten", "type": "main", "index": 0}]]
+}
+print("   LinkedIn Query Generator → API Call → Posts aufbereiten")
+
+# Trigger: entfernte LinkedIn-Nodes raus, Query Generator rein
+if trigger_node_name and trigger_node_name in connections:
+    trigger_conn = connections[trigger_node_name]
+    for branch in trigger_conn.get("main", []):
+        # Entfernte Nodes aus Trigger-Connections entfernen
+        branch[:] = [c for c in branch if c.get("node") not in removed_names]
+        # Query Generator hinzufügen falls noch nicht vorhanden
+        if not any(c.get("node") == "LinkedIn Query Generator" for c in branch):
+            branch.append({"node": "LinkedIn Query Generator", "type": "main", "index": 0})
+    print(f"   Trigger ({trigger_node_name}) → LinkedIn Query Generator")
+
+# ─── WORKFLOW DEAKTIVIEREN ───────────────────────────────────────────
 print("\n3. Workflow deaktivieren...")
 api("POST", f"/workflows/{WORKFLOW_ID}/deactivate")
 
-# ─── WORKFLOW PUSHEN ──────────────────────────────────────────────
+# ─── WORKFLOW PUSHEN ─────────────────────────────────────────────────
 print("4. Workflow pushen...")
-# Minimaler PUT-Body: nur Felder die n8n akzeptiert
 put_body = {
     "name": wf["name"],
     "nodes": new_nodes,
@@ -301,6 +434,7 @@ print(f"   Nodes jetzt: {len(result.get('nodes', []))}")
 
 print("\n✅ FERTIG!")
 print("   - Haiku entfernt (spart ~80% Tokens)")
-print("   - LinkedIn Filter gelockert")
+print("   - LinkedIn: 15 gezielte Queries (keyword + authorCompany + authorJobTitle)")
+print("   - linkdapi.com als Base-URL (kein Timeout mehr)")
 print("   - Breaking News aktualisiert")
 print("   - Workflow ist DEAKTIVIERT – erst testen, dann manuell aktivieren")
