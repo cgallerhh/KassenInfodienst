@@ -1268,8 +1268,10 @@ def main() -> None:
         print("   ℹ️  Keine TED-Ausschreibungen im Zeitraum gefunden.")
     print()
 
-    # Kassen in Batches aufteilen
-    batches = [kassen[i : i + BATCH_SIZE] for i in range(0, len(kassen), BATCH_SIZE)]
+    # Kassen in Batches aufteilen – BITMARCK + ITSC werden auch recherchiert,
+    # aber nicht für TED (sie sind Anbieter, keine Einkäufer)
+    research_targets = kassen + BEOBACHTETE_ORGS
+    batches = [research_targets[i : i + BATCH_SIZE] for i in range(0, len(research_targets), BATCH_SIZE)]
     all_research_parts: list[str] = []
 
     for idx, batch in enumerate(batches, 1):
