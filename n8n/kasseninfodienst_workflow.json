@@ -28,7 +28,8 @@
         "url": "https://api.ted.europa.eu/v3/notices/search",
         "sendBody": true,
         "contentType": "json",
-        "body": "={{ JSON.stringify({ query: 'buyer-country = DEU AND publication-date >= ' + $now.minus(30, 'days').format('yyyyMMdd'), fields: ['publication-number','notice-title','buyer-name','classification-cpv','total-value','estimated-value-proc','publication-date','notice-type'], limit: 250, scope: 'ALL', paginationMode: 'PAGE_NUMBER', page: 1 }) }}",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: 'buyer-country = DEU AND publication-date >= ' + $now.minus({days: 30}).toFormat('yyyyMMdd'), fields: ['publication-number','notice-title','buyer-name','classification-cpv','total-value','estimated-value-proc','publication-date','notice-type'], limit: 250, scope: 'ALL', paginationMode: 'PAGE_NUMBER', page: 1 }) }}",
         "options": { "timeout": 20000 }
       },
       "id": "ted-api",
