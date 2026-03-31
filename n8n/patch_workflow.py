@@ -283,13 +283,16 @@ api("POST", f"/workflows/{WORKFLOW_ID}/deactivate")
 
 # ─── WORKFLOW PUSHEN ──────────────────────────────────────────────
 print("4. Workflow pushen...")
-wf["nodes"] = new_nodes
-wf["connections"] = connections
-# read-only Felder entfernen die n8n im PUT nicht akzeptiert
-for field in ["active", "createdAt", "updatedAt", "versionId", "meta"]:
-    wf.pop(field, None)
+# Minimaler PUT-Body: nur Felder die n8n akzeptiert
+put_body = {
+    "name": wf["name"],
+    "nodes": new_nodes,
+    "connections": connections,
+    "settings": wf.get("settings", {}),
+    "staticData": wf.get("staticData", None),
+}
 
-result = api("PUT", f"/workflows/{WORKFLOW_ID}", wf)
+result = api("PUT", f"/workflows/{WORKFLOW_ID}", put_body)
 print(f"   OK: Workflow '{result.get('name')}' gespeichert")
 print(f"   Nodes jetzt: {len(result.get('nodes', []))}")
 
