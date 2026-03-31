@@ -46,12 +46,14 @@
         "genericAuthType": "httpHeaderAuth",
         "options": { "timeout": 15000 }
       },
+      "credentials": {
+        "httpHeaderAuth": { "name": "linkdAPI Key" }
+      },
       "id": "linkdapi-keyword",
       "name": "LinkedIn Keyword-Suche",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [300, -80],
-      "notes": "Iteriert über alle Orgs via SplitInBatches"
+      "position": [300, -80]
     },
 
     {
@@ -61,6 +63,9 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": { "timeout": 15000 }
+      },
+      "credentials": {
+        "httpHeaderAuth": { "name": "linkdAPI Key" }
       },
       "id": "linkdapi-author",
       "name": "LinkedIn Author-Suche",
@@ -161,10 +166,11 @@
       "parameters": {
         "method": "POST",
         "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "x-api-key", "value": "={{ $credentials.anthropicApiKey }}" },
             { "name": "anthropic-version", "value": "2023-06-01" },
             { "name": "anthropic-beta", "value": "prompt-caching-2024-07-31" }
           ]
@@ -174,22 +180,25 @@
         "body": "={{ JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: [{ type: 'text', text: 'Du bist ein GKV-Marktanalyst. Bewerte jeden Eintrag auf Relevanz für einen IT-Vertriebsmanager im GKV-Markt. Skala 1-5. Gib nur Einträge mit Score ≥ 3 zurück, komprimiert als Bullet-Liste mit Datum, Quelle und Kernaussage.', cache_control: { type: 'ephemeral' } }], messages: [{ role: 'user', content: $json.rohdaten }] }) }}",
         "options": { "timeout": 60000 }
       },
+      "credentials": {
+        "httpHeaderAuth": { "name": "Anthropic API Key" }
+      },
       "id": "claude-haiku-score",
       "name": "Claude Haiku: Relevanz-Scoring",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1400, 100],
-      "notes": "Filtert irrelevante Meldungen raus, behält nur Score ≥ 3"
+      "position": [1400, 100]
     },
 
     {
       "parameters": {
         "method": "POST",
         "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "x-api-key", "value": "={{ $credentials.anthropicApiKey }}" },
             { "name": "anthropic-version", "value": "2023-06-01" }
           ]
         },
@@ -197,6 +206,9 @@
         "contentType": "json",
         "body": "={{ JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4000, system: 'Du bist Chefredakteur des GKV-Branchenbriefs \"KassenInfodienst\" im Stil des dfg – Dienst für Gesellschaftspolitik (Wolfgang G. Lange). Investigativ, meinungsstark, personalisiert. Zielgruppe: erfahrener B2B-IT-Vertriebler im GKV-Markt. Sektionen: 📣 LinkedIn-Radar | 🔥 Wer kommt/geht | 💎 Ausschreibungen | 🤖 Automatisierung | 💬 Flurfunk | 🎯 Action Items. Nur vorhandene Sektionen ausgeben. Deutsch. Max. 2000 Wörter.', messages: [{ role: 'user', content: 'Erstelle den Newsletter aus diesen kuratierten Meldungen:\\n\\n' + $('Claude Haiku: Relevanz-Scoring').item.json.content[0].text }] }) }}",
         "options": { "timeout": 90000 }
+      },
+      "credentials": {
+        "httpHeaderAuth": { "name": "Anthropic API Key" }
       },
       "id": "claude-sonnet-newsletter",
       "name": "Claude Sonnet: Newsletter schreiben",
@@ -218,34 +230,37 @@
 
     {
       "parameters": {
-        "sendTo": "={{ $vars.RECIPIENT_EMAIL }}",
+        "fromEmail": "christian.galler@gmail.com",
+        "toEmail": "christian.galler@gmail.com",
         "subject": "=🏥 KassenInfodienst – {{ new Date().toLocaleDateString('de-DE') }}",
-        "emailType": "html",
-        "message": "={{ $json.newsletter_html }}",
-        "options": {
-          "appendAttribution": false
-        }
+        "emailFormat": "html",
+        "html": "={{ $json.newsletter_html }}",
+        "options": {}
+      },
+      "credentials": {
+        "smtp": { "name": "Gmail SMTP" }
       },
       "id": "send-gmail",
       "name": "Gmail versenden",
-      "type": "n8n-nodes-base.gmail",
+      "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
-      "position": [2000, 100],
-      "notes": "Benötigt Gmail OAuth2 Credential in n8n"
+      "position": [2000, 100]
     },
 
     {
       "parameters": {
-        "chatId": "={{ $vars.TELEGRAM_CHAT_ID }}",
+        "chatId": "8604500773",
         "text": "=🏥 *KassenInfodienst* – {{ new Date().toLocaleDateString('de-DE') }}\n\n{{ $json.newsletter_text.substring(0, 800) }}...\n\n_Vollständige Mail wurde versendet._",
         "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "credentials": {
+        "telegramApi": { "name": "Telegram account" }
       },
       "id": "telegram-notify",
       "name": "Telegram Zusammenfassung",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [2000, 240],
-      "notes": "Optional – nur wenn TELEGRAM_CHAT_ID gesetzt"
+      "position": [2000, 240]
     },
 
     {
@@ -283,9 +298,12 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $vars.TELEGRAM_CHAT_ID }}",
+        "chatId": "8604500773",
         "text": "=🚨 *Breaking GKV-News*\n\n*{{ $json.title }}*\n{{ $json.contentSnippet?.substring(0, 300) }}\n\n🔗 {{ $json.link }}",
         "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "credentials": {
+        "telegramApi": { "name": "Telegram account" }
       },
       "id": "breaking-telegram",
       "name": "Sofort-Alert via Telegram",
@@ -333,6 +351,5 @@
     "saveManualExecutions": true,
     "callerPolicy": "workflowsFromSameOwner",
     "errorWorkflow": ""
-  },
-
+  }
 }
