@@ -10,6 +10,7 @@ KASSEN = [
         "url": "https://www.tk.de",
         "linkedin_search": "Techniker Krankenkasse",
         "linkedin_url": "https://www.linkedin.com/company/techniker-krankenkasse/",
+        "linkedin_company_id": "41317",
     },
     {
         "name": "BARMER",
@@ -18,6 +19,7 @@ KASSEN = [
         "url": "https://www.barmer.de",
         "linkedin_search": "BARMER Krankenkasse",
         "linkedin_url": "https://www.linkedin.com/company/barmer/",
+        "linkedin_company_id": "18012268",
     },
     {
         "name": "DAK-Gesundheit",
@@ -26,6 +28,7 @@ KASSEN = [
         "url": "https://www.dak.de",
         "linkedin_search": "DAK-Gesundheit",
         "linkedin_url": "https://www.linkedin.com/company/dak-gesundheit/",
+        "linkedin_company_id": "42928985",
     },
     {
         "name": "IKK classic",
@@ -34,6 +37,7 @@ KASSEN = [
         "url": "https://www.ikk-classic.de",
         "linkedin_search": "IKK classic",
         "linkedin_url": "https://www.linkedin.com/company/ikk-classic/",
+        "linkedin_company_id": "1412986",
     },
     {
         "name": "Kaufmännische Krankenkasse (KKH)",
@@ -42,6 +46,7 @@ KASSEN = [
         "url": "https://www.kkh.de",
         "linkedin_search": "KKH Kaufmännische Krankenkasse",
         "linkedin_url": "https://www.linkedin.com/company/kkh-kaufmannische-krankenkasse/",
+        "linkedin_company_id": "39196",
     },
     {
         "name": "Siemens-Betriebskrankenkasse (SBK)",
@@ -58,6 +63,7 @@ KASSEN = [
         "url": "https://www.hkk.de",
         "linkedin_search": "hkk Handelskrankenkasse",
         "linkedin_url": "https://www.linkedin.com/company/hkk/",
+        "linkedin_company_id": "10699871",
     },
     {
         "name": "BKK firmus",
@@ -90,6 +96,7 @@ KASSEN = [
         "url": "https://www.viactiv.de",
         "linkedin_search": "VIACTIV Krankenkasse",
         "linkedin_url": "https://www.linkedin.com/company/viactiv-krankenkasse/",
+        "linkedin_company_id": "12414104",
     },
     {
         "name": "IKK Südwest",
@@ -106,6 +113,7 @@ KASSEN = [
         "url": "https://www.hek.de",
         "linkedin_search": "HEK Hanseatische Krankenkasse",
         "linkedin_url": "https://www.linkedin.com/company/hek-hanseatische-krankenkasse/",
+        "linkedin_company_id": "36667598",
     },
     {
         "name": "Pronova BKK",
@@ -135,6 +143,7 @@ BEOBACHTETE_ORGS = [
         "url": "https://www.bitmarck.de",
         "linkedin_search": "BITMARCK",
         "linkedin_url": "https://www.linkedin.com/company/bitmarck/",
+        "linkedin_company_id": "955964",
     },
     {
         "name": "ITSC GmbH",
@@ -143,5 +152,15 @@ BEOBACHTETE_ORGS = [
         "url": "https://www.itsc.de",
         "linkedin_search": "ITSC GmbH",
         "linkedin_url": "https://www.linkedin.com/company/itsc-gmbh/",
+        "linkedin_company_id": "8195481",
+    },
+    {
+        "name": "gematik GmbH",
+        "short": "gematik",
+        "domain": "gematik.de",
+        "url": "https://www.gematik.de",
+        "linkedin_search": "gematik",
+        "linkedin_url": "https://www.linkedin.com/company/gematik/",
+        "linkedin_company_id": "125822",
     },
 ]
