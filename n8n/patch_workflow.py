@@ -288,7 +288,10 @@ put_body = {
     "name": wf["name"],
     "nodes": new_nodes,
     "connections": connections,
-    "settings": wf.get("settings", {}),
+    "settings": {k: v for k, v in wf.get("settings", {}).items()
+                 if k in ("executionOrder", "saveManualExecutions", "callerPolicy",
+                          "errorWorkflow", "timezone", "saveDataSuccessExecution",
+                          "saveDataErrorExecution", "saveExecutionProgress")},
     "staticData": wf.get("staticData", None),
 }
 
