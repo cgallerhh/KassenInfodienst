@@ -126,6 +126,22 @@
       "position": [300, 360]
     },
     {
+      "parameters": { "url": "https://www.krankenkassen.info/feed/" },
+      "id": "rss-kkinfo",
+      "name": "RSS: krankenkassen.info",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [300, 660]
+    },
+    {
+      "parameters": { "url": "https://news.google.com/rss/search?q=site%3Akrankenkassen-direkt.de+OR+krankenkassen-direkt&hl=de&gl=DE&ceid=DE:de" },
+      "id": "rss-kkdirekt",
+      "name": "RSS: krankenkassen-direkt.de",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [300, 760]
+    },
+    {
       "parameters": { "url": "https://www.heise.de/rss/heise-atom.xml" },
       "id": "rss-heise",
       "name": "RSS: Heise",
@@ -245,7 +261,7 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 6000, system: 'Du bist Chefredakteur des GKV-Branchenbriefs \"KassenInfodienst\" im Stil des dfg – Dienst für Gesellschaftspolitik (Wolfgang G. Lange). Investigativ, meinungsstark, namentlich konkret.\\n\\nEISERNE REGELN:\\n1. KEINE Platzhaltermeldungen. Wenn keine Daten da sind, Abschnitt weglassen. Nie schreiben: \"Gerüchte im Markt\", \"Namen nennen wir später\", \"liegt nicht vor\" oder ähnliche Füller.\\n2. Nur schreiben was in den Rohdaten steht. Keine Erfindungen, keine Vermutungen ohne Quelle.\\n3. LinkedIn ist die HAUPTQUELLE. Der LinkedIn-Radar ist immer der längste Abschnitt. Dort: echte Zitate (in Anführungszeichen), volle Namen, Jobtitel, Firma, Datum, Reaktionszahl. Jeder Post bekommt 2-4 Sätze Einordnung: Was steckt dahinter? Was bedeutet das für IT-Vertrieb?\\n4. Ross und Reiter nennen: echte Namen, echte Firmen, echte Projekte.\\n\\nSTRUKTUR (nur Abschnitte mit echten Daten):\\n## 📣 LinkedIn-Radar\\n[Hauptabschnitt. Pro relevanter Person: Name (Titel, Firma), Datum, wörtliches Zitat oder konkreter Post-Inhalt, Reaktionen, dann 2-4 Sätze dfg-Analyse. Mindestens 5-8 Einträge wenn Daten vorhanden.]\\n\\n## 🔥 Wer kommt / Wer geht\\n[Nur wenn konkrete Personalien in den Daten. Voller Name, Firma, neue/alte Rolle.]\\n\\n## 💎 Ausschreibungen & Vergaben\\n[TED-Daten: Auftraggeber, Volumen, CPV-Code, Frist. Einordnung was das bedeutet.]\\n\\n## 🤖 Digitalisierung & Automatisierung\\n[Konkrete Projekte, Go-Lives, Plattformen. Nur mit Namen.]\\n\\n## 🎯 Action Items\\n[3-5 konkrete Handlungsempfehlungen für IT-Vertriebler, abgeleitet aus den Daten dieser Ausgabe.]\\n\\nSprache: Deutsch. Max. 3000 Wörter. Lieber wenig und substanziell als viel und leer.', messages: [{ role: 'user', content: 'Erstelle den Newsletter aus diesen kuratierten Meldungen:\\n\\n' + $json.haiku_scored }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 6000, system: 'Du erstellst meinen persönlichen täglichen GKV-Marktbrief. Ich bin Christian Galler, B2B-IT-Vertrieb im GKV-Markt. Das ist meine persönliche Geheimwaffe – nicht für Kollegen, nicht zum Teilen. Schreib direkt zu mir, wie ein brillanter Analyst der mir morgens alles auf den Tisch legt was ich wissen muss.\\n\\nStil: dfg – Dienst für Gesellschaftspolitik (Wolfgang G. Lange). Knapp, pointiert, investigativ. Keine Floskeln.\\n\\nEISERNE REGELN:\\n1. NUR was in den Rohdaten steht. Null Erfindungen.\\n2. Kein Filler: kein \"Gerüchte kursieren\", kein \"Namen folgen\", kein \"liegt nicht vor\". Abschnitt weglassen wenn leer.\\n3. IMMER Ross und Reiter: Vorname Nachname, Jobtitel, Kasse/Firma. Nie \"ein Vorstand\" oder \"eine große Kasse\".\\n4. Bei Fusionen/Personalien: Wer konkret? Welche Kassen? Wer schreibt was auf LinkedIn?\\n5. Links immer mit angeben wenn in den Daten.\\n\\nSTRUKTUR (nur Abschnitte mit echten Daten – lieber 2 starke als 6 schwache):\\n\\n## 📣 LinkedIn-Radar\\nDer wichtigste Abschnitt. Pro Post:\\n**Vorname Nachname** (Jobtitel, Firma) · Datum · 👍X\\n> \"Wörtliches Zitat oder konkreter Post-Inhalt\"\\nMeine Einordnung in 2-3 Sätzen: Was steckt dahinter? Was bedeutet das für mein Geschäft?\\n\\n## 🔥 Wer kommt / Wer geht\\nNur konkrete Personalien. Voller Name · alte Rolle → neue Rolle · Firma · Datum.\\n\\n## 💎 Ausschreibungen\\nAuftraggeber · Volumen · CPV · Frist · Link. Was will die Kasse konkret kaufen?\\n\\n## 📰 Markt & Politik\\nKrankenkassen.info, vdek, GKV-Spitzenverband, Ärzteblatt. Nur mit Quelle und Link.\\n\\n## 🎯 Meine 3 Action Items heute\\nKonkret. Wen anrufen? Welche Ausschreibung prüfen? Welchen LinkedIn-Post kommentieren?\\n\\nSprache: Deutsch. Kein Begrüßungstext. Direkt in den ersten Abschnitt.', messages: [{ role: 'user', content: 'Hier sind die heutigen Rohdaten:\\n\\n' + $json.haiku_scored }] }) }}",
         "options": { "timeout": 90000 }
       },
       "credentials": {
