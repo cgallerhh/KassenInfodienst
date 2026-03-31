@@ -336,30 +336,6 @@
   },
 
   "meta": {
-    "templateCredsSetupCompleted": false,
-    "n8n_version_created_with": "1.30.0"
-  },
-
-  "_notes": {
-    "credentials_needed": [
-      "httpHeaderAuth: Name='LinkdAPI', Header Name='X-API-Key', Value=LINKDAPI_KEY",
-      "gmail: OAuth2 mit deiner Gmail-Adresse",
-      "telegram: Bot-Token aus @BotFather",
-      "anthropicApiKey: als n8n Variable setzen (Settings → Variables)"
-    ],
-    "variables_needed": [
-      "RECIPIENT_EMAIL: Empfänger-Email",
-      "TELEGRAM_CHAT_ID: Deine Telegram Chat-ID (von @userinfobot)",
-      "anthropicApiKey: Claude API Key"
-    ],
-    "linkedin_orgs": [
-      "Techniker Krankenkasse", "BARMER Krankenkasse", "DAK-Gesundheit",
-      "IKK classic", "KKH Kaufmännische Krankenkasse", "SBK Siemens-Betriebskrankenkasse",
-      "hkk Handelskrankenkasse", "BKK firmus", "Mobil Krankenkasse",
-      "Audi BKK", "VIACTIV Krankenkasse", "IKK Südwest",
-      "HEK Hanseatische Krankenkasse", "Pronova BKK", "BAHN-BKK",
-      "BITMARCK", "ITSC GmbH"
-    ],
-    "import_instructions": "In n8n: Settings → Import Workflow → Diese JSON-Datei wählen"
+    "templateCredsSetupCompleted": false
   }
 }
