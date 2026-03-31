@@ -192,6 +192,17 @@
 
     {
       "parameters": {
+        "jsCode": "const haiku = $input.first().json;\nconst scored = haiku.content?.[0]?.text || '';\nreturn [{ json: { haiku_scored: scored } }];"
+      },
+      "id": "extract-haiku-text",
+      "name": "Haiku-Text extrahieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 100]
+    },
+
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://api.anthropic.com/v1/messages",
         "authentication": "genericCredentialType",
@@ -205,7 +216,7 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4000, system: 'Du bist Chefredakteur des GKV-Branchenbriefs \"KassenInfodienst\" im Stil des dfg – Dienst für Gesellschaftspolitik (Wolfgang G. Lange). Investigativ, meinungsstark, personalisiert. Zielgruppe: erfahrener B2B-IT-Vertriebler im GKV-Markt. Sektionen: 📣 LinkedIn-Radar | 🔥 Wer kommt/geht | 💎 Ausschreibungen | 🤖 Automatisierung | 💬 Flurfunk | 🎯 Action Items. Nur vorhandene Sektionen ausgeben. Deutsch. Max. 2000 Wörter.', messages: [{ role: 'user', content: 'Erstelle den Newsletter aus diesen kuratierten Meldungen:\\n\\n' + $input.first().json.content[0].text }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4000, system: 'Du bist Chefredakteur des GKV-Branchenbriefs \"KassenInfodienst\" im Stil des dfg – Dienst für Gesellschaftspolitik (Wolfgang G. Lange). Investigativ, meinungsstark, personalisiert. Zielgruppe: erfahrener B2B-IT-Vertriebler im GKV-Markt. Sektionen: 📣 LinkedIn-Radar | 🔥 Wer kommt/geht | 💎 Ausschreibungen | 🤖 Automatisierung | 💬 Flurfunk | 🎯 Action Items. Nur vorhandene Sektionen ausgeben. Deutsch. Max. 2000 Wörter.', messages: [{ role: 'user', content: 'Erstelle den Newsletter aus diesen kuratierten Meldungen:\\n\\n' + $json.haiku_scored }] }) }}",
         "options": { "timeout": 90000 }
       },
       "credentials": {
@@ -215,7 +226,7 @@
       "name": "Claude Sonnet: Newsletter schreiben",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1600, 100]
+      "position": [1700, 100]
     },
 
     {
@@ -332,7 +343,8 @@
       ]
     },
     "Rohdaten für Claude formatieren": { "main": [[{ "node": "Claude Haiku: Relevanz-Scoring", "type": "main", "index": 0 }]] },
-    "Claude Haiku: Relevanz-Scoring": { "main": [[{ "node": "Claude Sonnet: Newsletter schreiben", "type": "main", "index": 0 }]] },
+    "Claude Haiku: Relevanz-Scoring": { "main": [[{ "node": "Haiku-Text extrahieren", "type": "main", "index": 0 }]] },
+    "Haiku-Text extrahieren": { "main": [[{ "node": "Claude Sonnet: Newsletter schreiben", "type": "main", "index": 0 }]] },
     "Claude Sonnet: Newsletter schreiben": { "main": [[{ "node": "HTML-Email aufbauen", "type": "main", "index": 0 }]] },
     "HTML-Email aufbauen": { "main": [[{ "node": "Gmail versenden", "type": "main", "index": 0 }, { "node": "Telegram Zusammenfassung", "type": "main", "index": 0 }]] },
     "Breaking News Check (alle 30min)": { "main": [[{ "node": "Google News: Breaking Keywords", "type": "main", "index": 0 }]] },
