@@ -117,8 +117,7 @@
 
     {
       "parameters": {
-        "mode": "multiplex",
-        "clashHandling": { "values": { "resolveClash": "addSuffix" } }
+        "mode": "append"
       },
       "id": "merge-all",
       "name": "Alle Quellen zusammenführen",
@@ -129,7 +128,7 @@
 
     {
       "parameters": {
-        "jsCode": "// Deduplizierung: Items mit bereits gesehenen URLs/Hashes überspringen\nconst items = $input.all();\nconst seen = new Set();\nconst fresh = [];\n\nfor (const item of items) {\n  const key = item.json.url || item.json.link || item.json.id || \n              (item.json.text || '').substring(0, 80);\n  const hash = key.replace(/\\s+/g, '').toLowerCase();\n  if (!seen.has(hash)) {\n    seen.add(hash);\n    fresh.push({ ...item, json: { ...item.json, _hash: hash } });\n  }\n}\n\n// Nur Items der letzten 48h (für Daily) oder 14 Tage (für Weekly)\nconst cutoff = new Date();\ncutoff.setDate(cutoff.getDate() - (process.env.IS_FRIDAY === 'true' ? 14 : 2));\n\nreturn fresh.filter(item => {\n  const pub = item.json.pubDate || item.json.postedAt || item.json['publication-date'];\n  if (!pub) return true;\n  return new Date(pub) >= cutoff;\n});"
+        "jsCode": "// Deduplizierung: Items mit bereits gesehenen URLs/Hashes überspringen\nconst items = $input.all();\nconst seen = new Set();\nconst fresh = [];\n\nfor (const item of items) {\n  const key = item.json.url || item.json.link || item.json.id || \n              (item.json.text || '').substring(0, 80);\n  const hash = key.replace(/\\s+/g, '').toLowerCase();\n  if (!seen.has(hash)) {\n    seen.add(hash);\n    fresh.push({ ...item, json: { ...item.json, _hash: hash } });\n  }\n}\n\n// Nur Items der letzten 2 Tage (täglicher Newsletter)\nconst cutoff = new Date();\ncutoff.setDate(cutoff.getDate() - 2);\n\nreturn fresh.filter(item => {\n  const pub = item.json.pubDate || item.json.postedAt || item.json['publication-date'];\n  if (!pub) return true;\n  return new Date(pub) >= cutoff;\n});"
       },
       "id": "dedup",
       "name": "Deduplizierung + Zeitfilter",
@@ -177,7 +176,8 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "body": "={{ JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: [{ type: 'text', text: 'Du bist ein GKV-Marktanalyst. Bewerte jeden Eintrag auf Relevanz für einen IT-Vertriebsmanager im GKV-Markt. Skala 1-5. Gib nur Einträge mit Score ≥ 3 zurück, komprimiert als Bullet-Liste mit Datum, Quelle und Kernaussage.', cache_control: { type: 'ephemeral' } }], messages: [{ role: 'user', content: $json.rohdaten }] }) }}",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: [{ type: 'text', text: 'Du bist ein GKV-Marktanalyst. Bewerte jeden Eintrag auf Relevanz für einen IT-Vertriebsmanager im GKV-Markt. Skala 1-5. Gib nur Einträge mit Score ≥ 3 zurück, komprimiert als Bullet-Liste mit Datum, Quelle und Kernaussage.', cache_control: { type: 'ephemeral' } }], messages: [{ role: 'user', content: $json.rohdaten }] }) }}",
         "options": { "timeout": 60000 }
       },
       "credentials": {
@@ -204,7 +204,8 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "body": "={{ JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4000, system: 'Du bist Chefredakteur des GKV-Branchenbriefs \"KassenInfodienst\" im Stil des dfg – Dienst für Gesellschaftspolitik (Wolfgang G. Lange). Investigativ, meinungsstark, personalisiert. Zielgruppe: erfahrener B2B-IT-Vertriebler im GKV-Markt. Sektionen: 📣 LinkedIn-Radar | 🔥 Wer kommt/geht | 💎 Ausschreibungen | 🤖 Automatisierung | 💬 Flurfunk | 🎯 Action Items. Nur vorhandene Sektionen ausgeben. Deutsch. Max. 2000 Wörter.', messages: [{ role: 'user', content: 'Erstelle den Newsletter aus diesen kuratierten Meldungen:\\n\\n' + $('Claude Haiku: Relevanz-Scoring').item.json.content[0].text }] }) }}",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4000, system: 'Du bist Chefredakteur des GKV-Branchenbriefs \"KassenInfodienst\" im Stil des dfg – Dienst für Gesellschaftspolitik (Wolfgang G. Lange). Investigativ, meinungsstark, personalisiert. Zielgruppe: erfahrener B2B-IT-Vertriebler im GKV-Markt. Sektionen: 📣 LinkedIn-Radar | 🔥 Wer kommt/geht | 💎 Ausschreibungen | 🤖 Automatisierung | 💬 Flurfunk | 🎯 Action Items. Nur vorhandene Sektionen ausgeben. Deutsch. Max. 2000 Wörter.', messages: [{ role: 'user', content: 'Erstelle den Newsletter aus diesen kuratierten Meldungen:\\n\\n' + $input.first().json.content[0].text }] }) }}",
         "options": { "timeout": 90000 }
       },
       "credentials": {
@@ -314,16 +315,14 @@
   ],
 
   "connections": {
-    "Täglich 06:00": { "main": [[{ "node": "TED Ausschreibungen", "type": "main", "index": 0 }, { "node": "RSS: GKV-Spitzenverband", "type": "main", "index": 0 }, { "node": "RSS: vdek", "type": "main", "index": 0 }, { "node": "RSS: Ärzteblatt", "type": "main", "index": 0 }, { "node": "RSS: Heise", "type": "main", "index": 0 }, { "node": "RSS: BaFin / BMG", "type": "main", "index": 0 }, { "node": "LinkedIn Keyword-Suche", "type": "main", "index": 0 }]] },
-    "Freitags 08:00 (Weekly)": { "main": [[{ "node": "TED Ausschreibungen", "type": "main", "index": 0 }, { "node": "RSS: GKV-Spitzenverband", "type": "main", "index": 0 }, { "node": "LinkedIn Keyword-Suche", "type": "main", "index": 0 }]] },
+    "Täglich 06:00": { "main": [[{ "node": "TED Ausschreibungen", "type": "main", "index": 0 }, { "node": "RSS: GKV-Spitzenverband", "type": "main", "index": 0 }, { "node": "RSS: vdek", "type": "main", "index": 0 }, { "node": "RSS: Ärzteblatt", "type": "main", "index": 0 }, { "node": "RSS: Heise", "type": "main", "index": 0 }, { "node": "RSS: GKV Gesundheitspolitik", "type": "main", "index": 0 }]] },
+    "Freitags 08:00 (Weekly)": { "main": [[{ "node": "TED Ausschreibungen", "type": "main", "index": 0 }, { "node": "RSS: GKV-Spitzenverband", "type": "main", "index": 0 }, { "node": "RSS: Ärzteblatt", "type": "main", "index": 0 }]] },
     "TED Ausschreibungen": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
-    "LinkedIn Keyword-Suche": { "main": [[{ "node": "LinkedIn Author-Suche", "type": "main", "index": 0 }]] },
-    "LinkedIn Author-Suche": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 1 }]] },
-    "RSS: GKV-Spitzenverband": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 2 }]] },
-    "RSS: vdek": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 3 }]] },
-    "RSS: Ärzteblatt": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 4 }]] },
-    "RSS: Heise": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 5 }]] },
-    "RSS: BaFin / BMG": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 6 }]] },
+    "RSS: GKV-Spitzenverband": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
+    "RSS: vdek": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
+    "RSS: Ärzteblatt": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
+    "RSS: Heise": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
+    "RSS: GKV Gesundheitspolitik": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
     "Alle Quellen zusammenführen": { "main": [[{ "node": "Deduplizierung + Zeitfilter", "type": "main", "index": 0 }]] },
     "Deduplizierung + Zeitfilter": { "main": [[{ "node": "≥ 5 neue Items?", "type": "main", "index": 0 }]] },
     "≥ 5 neue Items?": {
