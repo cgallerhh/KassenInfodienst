@@ -285,8 +285,9 @@ api("POST", f"/workflows/{WORKFLOW_ID}/deactivate")
 print("4. Workflow pushen...")
 wf["nodes"] = new_nodes
 wf["connections"] = connections
-# active darf nicht im PUT body sein
-wf.pop("active", None)
+# read-only Felder entfernen die n8n im PUT nicht akzeptiert
+for field in ["active", "createdAt", "updatedAt", "versionId", "meta"]:
+    wf.pop(field, None)
 
 result = api("PUT", f"/workflows/{WORKFLOW_ID}", wf)
 print(f"   OK: Workflow '{result.get('name')}' gespeichert")
