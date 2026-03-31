@@ -63,45 +63,6 @@
     },
     {
       "parameters": {
-        "method": "GET",
-        "url": "=https://linkdapi.com/api/v1/search/posts?keyword={{ encodeURIComponent($json.linkedin_search) }}&datePosted=past-month&sortBy=date_posted",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "options": {
-          "timeout": 15000
-        }
-      },
-      "id": "linkdapi-keyword",
-      "name": "LinkedIn Keyword-Suche",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        300,
-        -80
-      ],
-      "notes": "Iteriert über alle Orgs via SplitInBatches"
-    },
-    {
-      "parameters": {
-        "method": "GET",
-        "url": "=https://linkdapi.com/api/v1/search/posts?authorCompany={{ $json.linkedin_company_id ?? encodeURIComponent($json.linkedin_search) }}&datePosted=past-month&sortBy=date_posted",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "options": {
-          "timeout": 15000
-        }
-      },
-      "id": "linkdapi-author",
-      "name": "LinkedIn Author-Suche",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        300,
-        40
-      ]
-    },
-    {
-      "parameters": {
         "url": "https://www.gkv-spitzenverband.de/service/presse/pressemitteilungen/rss_pressemitteilungen.xml"
       },
       "id": "rss-gkv",
@@ -425,6 +386,53 @@
         800,
         560
       ]
+    },
+    {
+      "id": "linkedin-query-gen",
+      "name": "LinkedIn Query Generator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        -80
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const BASE = \"https://linkdapi.com/api/v1/search/posts\";\nconst C = {\n  bitmarck: \"955964\", itsc: \"8195481\", gematik: \"125822\",\n  dak: \"42928985\", tk: \"41317\", barmer: \"18012268\",\n  hkk: \"10699871\", hek: \"36667598\", kkh: \"39196\",\n  ikk: \"1412986\", viactiv: \"12414104\"\n};\n\nconst queries = [\n  { keyword: \"ePA\",             authorCompany: C.gematik },\n  { keyword: \"Telematik\",       authorCompany: C.gematik },\n  { keyword: \"Cloud\",           authorCompany: C.bitmarck, authorJobTitle: \"CIO\" },\n  { keyword: \"Atlassian\",       authorCompany: C.bitmarck },\n  { keyword: \"SAP\",             authorCompany: C.bitmarck },\n  { keyword: \"Digitalisierung\", authorCompany: C.bitmarck },\n  { keyword: \"IT-Strategie\",    authorCompany: C.itsc },\n  { keyword: \"Cloud\",           authorCompany: C.itsc },\n  { keyword: \"ePA\",             authorCompany: C.dak,     authorJobTitle: \"Vorstand\" },\n  { keyword: \"Digitalisierung\", authorCompany: C.tk,      authorJobTitle: \"CIO\" },\n  { keyword: \"NIS2\",            authorCompany: C.barmer },\n  { keyword: \"ePA\",             authorCompany: C.tk },\n  { keyword: \"Digitalisierung\", authorJobTitle: \"CIO\" },\n  { keyword: \"NIS2\",            authorJobTitle: \"Vorstand\" },\n  { keyword: \"ePA\",             authorJobTitle: \"CIO\" },\n];\n\nreturn queries.map(q => {\n  let url = BASE + \"?keyword=\" + encodeURIComponent(q.keyword)\n    + \"&sortBy=relevance&datePosted=past-week&count=10\";\n  if (q.authorCompany)  url += \"&authorCompany=\"  + q.authorCompany;\n  if (q.authorJobTitle) url += \"&authorJobTitle=\" + encodeURIComponent(q.authorJobTitle);\n  return { json: { url, ...q } };\n});"
+      }
+    },
+    {
+      "id": "linkedin-api-call",
+      "name": "LinkedIn API Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        -80
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    },
+    {
+      "id": "linkedin-posts-aufbereiten",
+      "name": "LinkedIn Posts aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        740,
+        -80
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const results = [];\n\nfor (const item of $input.all()) {\n  const body = item.json;\n  const posts = body.data ?? body.posts ?? body.results ?? (Array.isArray(body) ? body : []);\n\n  for (const post of posts) {\n    const reactions = post.totalReactionCount ?? post.likeCount ?? post.reactions ?? 0;\n    if (reactions < 5) continue;          // Mindest-Engagement-Filter\n\n    results.push({ json: {\n      source:    \"linkedin\",\n      title:     (post.author?.name ?? \"\") + \": \" + (post.text ?? \"\").slice(0, 120),\n      text:      post.text ?? \"\",\n      url:       post.url ?? post.postUrl ?? \"\",\n      date:      post.postedAt ?? post.createdAt ?? new Date().toISOString(),\n      reactions,\n      author:    post.author?.name ?? \"\",\n      company:   post.author?.companyName ?? \"\",\n    }});\n  }\n}\n\nreturn results;"
+      }
     }
   ],
   "connections": {
@@ -462,7 +470,7 @@
             "index": 0
           },
           {
-            "node": "LinkedIn Keyword-Suche",
+            "node": "LinkedIn Query Generator",
             "type": "main",
             "index": 0
           }
@@ -483,7 +491,7 @@
             "index": 0
           },
           {
-            "node": "LinkedIn Keyword-Suche",
+            "node": "LinkedIn Query Generator",
             "type": "main",
             "index": 0
           }
@@ -497,28 +505,6 @@
             "node": "Alle Quellen zusammenführen",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "LinkedIn Keyword-Suche": {
-      "main": [
-        [
-          {
-            "node": "LinkedIn Author-Suche",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "LinkedIn Author-Suche": {
-      "main": [
-        [
-          {
-            "node": "Alle Quellen zusammenführen",
-            "type": "main",
-            "index": 1
           }
         ]
       ]
@@ -693,6 +679,39 @@
           }
         ],
         []
+      ]
+    },
+    "LinkedIn Query Generator": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn API Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn API Call": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn Posts aufbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn Posts aufbereiten": {
+      "main": [
+        [
+          {
+            "node": "Alle Quellen zusammenführen",
+            "type": "main",
+            "index": 1
+          }
+        ]
       ]
     }
   },
