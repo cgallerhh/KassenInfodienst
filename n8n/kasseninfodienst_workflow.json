@@ -47,7 +47,7 @@
         "options": { "timeout": 15000 }
       },
       "credentials": {
-        "httpHeaderAuth": { "name": "linkdAPI Key" }
+        "httpHeaderAuth": { "id": "2AZJHqeS0X9NUG2A", "name": "linkdAPI Key" }
       },
       "id": "linkdapi-keyword",
       "name": "LinkedIn Keyword-Suche",
@@ -65,7 +65,7 @@
         "options": { "timeout": 15000 }
       },
       "credentials": {
-        "httpHeaderAuth": { "name": "linkdAPI Key" }
+        "httpHeaderAuth": { "id": "2AZJHqeS0X9NUG2A", "name": "linkdAPI Key" }
       },
       "id": "linkdapi-author",
       "name": "LinkedIn Author-Suche",
@@ -181,7 +181,7 @@
         "options": { "timeout": 60000 }
       },
       "credentials": {
-        "httpHeaderAuth": { "name": "Anthropic API Key" }
+        "httpHeaderAuth": { "id": "rfQjWh9ed157YC85", "name": "Anthropic API Key" }
       },
       "id": "claude-haiku-score",
       "name": "Claude Haiku: Relevanz-Scoring",
@@ -208,7 +208,7 @@
         "options": { "timeout": 90000 }
       },
       "credentials": {
-        "httpHeaderAuth": { "name": "Anthropic API Key" }
+        "httpHeaderAuth": { "id": "rfQjWh9ed157YC85", "name": "Anthropic API Key" }
       },
       "id": "claude-sonnet-newsletter",
       "name": "Claude Sonnet: Newsletter schreiben",
@@ -238,7 +238,7 @@
         "options": {}
       },
       "credentials": {
-        "smtp": { "name": "Gmail SMTP" }
+        "smtp": { "id": "GokeQORhayYAAccg", "name": "Gmail SMTP" }
       },
       "id": "send-gmail",
       "name": "Gmail versenden",
@@ -254,7 +254,7 @@
         "additionalFields": { "parse_mode": "Markdown" }
       },
       "credentials": {
-        "telegramApi": { "name": "Telegram account" }
+        "telegramApi": { "id": "5vv1nx9BFd8YrpDj", "name": "Telegram account" }
       },
       "id": "telegram-notify",
       "name": "Telegram Zusammenfassung",
@@ -303,7 +303,7 @@
         "additionalFields": { "parse_mode": "Markdown" }
       },
       "credentials": {
-        "telegramApi": { "name": "Telegram account" }
+        "telegramApi": { "id": "5vv1nx9BFd8YrpDj", "name": "Telegram account" }
       },
       "id": "breaking-telegram",
       "name": "Sofort-Alert via Telegram",
