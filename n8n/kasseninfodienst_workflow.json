@@ -42,7 +42,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://linkdapi.com/api/v1/search/posts?keyword={{ encodeURIComponent($json.linkedin_search) }}&datePosted=past-month&sortBy=date_posted",
+        "url": "https://linkdapi.com/api/v1/search/posts?keyword=GKV%20Krankenkasse%20Digitalisierung%20IT&datePosted=past-month&sortBy=date_posted",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": { "timeout": 15000 }
@@ -54,13 +54,14 @@
       "name": "LinkedIn Keyword-Suche",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
       "position": [300, -80]
     },
 
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://linkdapi.com/api/v1/search/posts?authorCompany={{ encodeURIComponent($json.linkedin_search) }}&datePosted=past-month&sortBy=date_posted",
+        "url": "https://linkdapi.com/api/v1/search/posts?authorCompany=BITMARCK&datePosted=past-month&sortBy=date_posted",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": { "timeout": 15000 }
@@ -72,6 +73,7 @@
       "name": "LinkedIn Author-Suche",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
       "position": [300, 40]
     },
 
@@ -330,9 +332,11 @@
   ],
 
   "connections": {
-    "Täglich 06:00": { "main": [[{ "node": "TED Ausschreibungen", "type": "main", "index": 0 }, { "node": "RSS: GKV-Spitzenverband", "type": "main", "index": 0 }, { "node": "RSS: vdek", "type": "main", "index": 0 }, { "node": "RSS: Ärzteblatt", "type": "main", "index": 0 }, { "node": "RSS: Heise", "type": "main", "index": 0 }, { "node": "RSS: GKV Gesundheitspolitik", "type": "main", "index": 0 }]] },
+    "Täglich 06:00": { "main": [[{ "node": "TED Ausschreibungen", "type": "main", "index": 0 }, { "node": "RSS: GKV-Spitzenverband", "type": "main", "index": 0 }, { "node": "RSS: vdek", "type": "main", "index": 0 }, { "node": "RSS: Ärzteblatt", "type": "main", "index": 0 }, { "node": "RSS: Heise", "type": "main", "index": 0 }, { "node": "RSS: GKV Gesundheitspolitik", "type": "main", "index": 0 }, { "node": "LinkedIn Keyword-Suche", "type": "main", "index": 0 }, { "node": "LinkedIn Author-Suche", "type": "main", "index": 0 }]] },
     "Freitags 08:00 (Weekly)": { "main": [[{ "node": "TED Ausschreibungen", "type": "main", "index": 0 }, { "node": "RSS: GKV-Spitzenverband", "type": "main", "index": 0 }, { "node": "RSS: Ärzteblatt", "type": "main", "index": 0 }]] },
     "TED Ausschreibungen": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
+    "LinkedIn Keyword-Suche": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
+    "LinkedIn Author-Suche": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
     "RSS: GKV-Spitzenverband": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
     "RSS: vdek": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
     "RSS: Ärzteblatt": { "main": [[{ "node": "Alle Quellen zusammenführen", "type": "main", "index": 0 }]] },
