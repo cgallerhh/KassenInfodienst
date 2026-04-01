@@ -1,0 +1,20 @@
+services:
+  openclaw:
+    image: openclaw/openclaw:latest
+    container_name: openclaw
+    restart: unless-stopped
+    # Kein öffentlicher Port – Zugriff nur über SSH-Tunnel oder Tailscale
+    # Zum temporären Testen: ports: ["127.0.0.1:3000:3000"]
+    volumes:
+      - openclaw_data:/root/.openclaw
+      # KassenInfodienst-Projekt einbinden, damit OpenClaw digest.py ausführen kann
+      - ../:/workspace/kasseninfodienst:ro
+    env_file:
+      - .env.openclaw
+    environment:
+      - OPENCLAW_CONFIG_DIR=/root/.openclaw
+      - NODE_ENV=production
+
+volumes:
+  openclaw_data:
+    driver: local
