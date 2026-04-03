@@ -1,0 +1,747 @@
+{
+  "name": "KassenInfodienst – GKV Intelligence",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/30 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "breaking-trigger",
+      "name": "Breaking News Check (alle 30min)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1056,
+        -160
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "url": "https://news.google.com/rss/search?q=%22Krankenkasse%22+%28%22Fusion%22+OR+%22Vorstandswechsel%22+OR+%22BITMARCK%22+OR+%22ITSC%22+OR+%22gematik%22+OR+%22Ausschreibung%22+OR+%22Providerwechsel%22+OR+%22Insolvenz%22%29&hl=de&gl=DE&ceid=DE:de",
+        "options": {}
+      },
+      "id": "breaking-rss",
+      "name": "Google News: Breaking Keywords",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        208,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "8604500773",
+        "text": "=🚨 *Breaking GKV-News*\n\n*{{ $json.title }}*\n{{ $json.contentSnippet?.substring(0, 300) }}\n\n🔗 {{ $json.link }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "breaking-telegram",
+      "name": "Sofort-Alert via Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2752,
+        -160
+      ],
+      "webhookId": "a963afc9-32ad-4540-8a01-e944dc4d3fb2",
+      "credentials": {
+        "telegramApi": {
+          "id": "w8WwOfpucfusDAlj",
+          "name": "Telegram Kasseninfodienst"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://www.krankenkassen-direkt.de/rss/gkv-presse.xml",
+        "options": {}
+      },
+      "id": "2da64d42-55fc-4f77-99a9-1951d9727e08",
+      "name": "RSS: Krankenkassendirekt Pressemitteilungen",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        176,
+        1552
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.krankenkassen-direkt.de/rss/gkv-news.xml",
+        "options": {}
+      },
+      "id": "fbf8b3bb-e59c-4986-86c5-e1e3e96a15ec",
+      "name": "RSS: Krankenkassendirekt",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        192,
+        1344
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "8604500773",
+        "text": "=🏥 *KassenInfodienst* – {{ new Date().toLocaleDateString('de-DE') }}\n\n{{ $json.newsletter_text.substring(0, 800) }}...\n\n_Vollständige Mail wurde versendet._",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-notify",
+      "name": "Telegram Zusammenfassung",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2752,
+        464
+      ],
+      "webhookId": "8f47a0e0-fc57-4454-8a46-473624c90d76",
+      "credentials": {
+        "telegramApi": {
+          "id": "w8WwOfpucfusDAlj",
+          "name": "Telegram Kasseninfodienst"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "christian.galler@gmail.com",
+        "toEmail": "christian.galler@gmail.com",
+        "subject": "=🏥 KassenInfodienst – {{ new Date().toLocaleDateString('de-DE') }}",
+        "html": "={{ $json.newsletter_html }}",
+        "options": {}
+      },
+      "id": "send-gmail",
+      "name": "Gmail versenden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2736,
+        160
+      ],
+      "webhookId": "ee66cb3c-946e-4ee7-b8d1-0905f4f737d8",
+      "credentials": {
+        "smtp": {
+          "id": "GokeQORhayYAAccg",
+          "name": "Gmail SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "BUILDHTML_PLACEHOLDER"
+      },
+      "id": "build-html",
+      "name": "HTML-Email aufbauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "anthropic-beta",
+              "value": "prompt-caching-2024-07-31"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"claude-sonnet-4-6\", max_tokens: 3500, system: [{ type: \"text\", text: \"Du bist Nachrichtenredakteur des KassenInfodienst \\u2013 GKV Intelligence Brief.\\n\\nSTIL: Sachlich, faktisch, pr\\u00e4zise. Keine Meinungen, keine Metaphern, keine Glossen.\\nJede Aussage braucht: Wer, Was, Wann. Zahlen und Namen immer nennen.\\n\\nAUSGABEFORMAT (exakt einhalten):\\n\\n=== SEKTION: LINKEDIN-RADAR ===\\nF\\u00fcr jeden relevanten Post (max. 20):\\nAUTHOR: [Wert aus AUTHOR]\\nPOSITION: [Wert aus POSITION]\\nCOMPANY: [Wert aus COMPANY]\\nDATE: [Wert aus DATE]\\nREACTIONS: [Wert aus REACTIONS]\\nURL: [Wert aus URL]\\nTEXT: [Mix aus direktem Zitat (in Anf\\u00fchrungszeichen) und sachlicher Einordnung \\u2013 max. 300 Zeichen. Beispiel: \\\"Digitalisierung scheitert an Priorisierung\\\" \\u2013 Hauser sieht fehlende Top-Priorit\\u00e4t als Haupthindernis f\\u00fcr GKV-IT-Projekte.]\\n---\\n\\n=== SEKTION: PERSONAL ===\\n- [Name], [neue Rolle], [Firma][, ab DATUM \\u2013 nur wenn Datum bekannt]\\n\\n=== SEKTION: AUSSCHREIBUNGEN ===\\nAlle relevanten Ausschreibungen vollst\\u00e4ndig auff\\u00fchren:\\n- [Auftraggeber]: [Titel] \\u2013 Wert: [EUR wenn bekannt] \\u2013 Frist: [Datum wenn bekannt]\\n\\n=== SEKTION: DIGITALISIERUNG ===\\nAlle relevanten Meldungen vollst\\u00e4ndig auff\\u00fchren:\\n- [Firma]: [Konkretes Projekt/Rollout/Partnerschaft] \\u2013 [Datum] \\u2013 [Quelle]\\n\\n=== SEKTION: GKV-NACHRICHTEN ===\\nAlle relevanten GKV-Meldungen vollst\\u00e4ndig auff\\u00fchren:\\n- [Organisation]: [Meldung] \\u2013 [Datum] \\u2013 [Quelle]\\n\\nREGELN:\\n- Jeden Datenpunkt aus den Eingaben verwenden \\u2013 nichts weglassen\\n- Nur Sektionen ausgeben wenn echte Daten vorhanden\\n- Keine Einleitung, kein Schluss, kein F\\u00fclltext\\n- Kein Markdown (keine **fett**, keine *kursiv*)\\n- POSITION/COMPANY: nur reale Daten \\u2013 wenn leer, Zeile trotzdem ausgeben aber leer lassen\", cache_control: { type: \"ephemeral\" } }], messages: [{ role: \"user\", content: \"Newsletter erstellen. Verwende ALLE vorliegenden Daten vollst\\u00e4ndig:\\n\\n\" + $json.haiku_scored }] }) }}",
+        "options": {
+          "timeout": 130000
+        }
+      },
+      "id": "claude-sonnet-newsletter",
+      "name": "Claude Sonnet: Newsletter schreiben",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2384,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "rfQjWh9ed157YC85",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst linkedinItems = items.filter(i => i.json._source === 'LinkedIn').slice(0, 15);\nconst otherItems = items.filter(i => i.json._source !== 'LinkedIn');\n\nconst GKV_TERMS = ['krankenkasse','gkv','bitmarck','itsc','gematik','beitrag',\n  'fusion','vorstand','digitalisierung','ausschreibung','kasse','versicherung',\n  'krankenversicherung','kassenvorstand','epa','telematik','ti 2','ti2'];\nconst HIGH_TERMS = ['fusion','fusionierung','vorstandswechsel','bitmarck','itsc',\n  'ausschreibung','insolvenz','gematik','epa ','ti 2','providerwechsel','govdigital',\n  '21c','zusammenschluss'];\n\nfunction scoreItem(item) {\n  const text = ((item.json.title||'') + ' ' + (item.json.contentSnippet||item.json.text||'')).toLowerCase();\n  let s = 0;\n  if (HIGH_TERMS.some(t => text.includes(t))) s += 3;\n  if (GKV_TERMS.some(t => text.includes(t))) s += 2;\n  return s;\n}\n\nconst topOthers = otherItems\n  .map(i => ({ ...i, json: { ...i.json, _score: scoreItem(i) } }))\n  .filter(i => i.json._score >= 2)\n  .sort((a, b) => b.json._score - a.json._score)\n  .slice(0, 20);\n\nconst selected = [...linkedinItems, ...topOthers];\n\nlet text = `=== STATISTIK ===\\nGesamt: ${selected.length} Einträge\\nLinkedIn-Posts: ${linkedinItems.length}\\n=================\\n\\n`;\n\nif (linkedinItems.length > 0) {\n  text += `=== LINKEDIN-POSTS (exakt so übernehmen, keine Felder weglassen) ===\\n\\n`;\n  for (const item of linkedinItems) {\n    text += `AUTHOR: ${item.json.author || 'Unbekannt'}\\n`;\n    text += `POSITION: ${item.json.authorTitle || ''}\\n`;\n    text += `COMPANY: ${item.json.authorCompany || ''}\\n`;\n    text += `DATE: ${item.json.postedAt || ''}\\n`;\n    text += `REACTIONS: ${item.json.reactions || 0}\\n`;\n    text += `URL: ${item.json.link || ''}\\n`;\n    text += `TEXT: ${(item.json.text || '').substring(0, 280)}\\n`;\n    text += `---\\n`;\n  }\n  text += `\\n`;\n}\n\nfor (const item of topOthers) {\n  const src = item.json._source || 'Unbekannt';\n  const title = item.json.title || item.json.text?.substring(0, 100) || '';\n  const url = item.json.url || item.json.link || '';\n  const date = item.json.pubDate || item.json.postedAt || '';\n  const body = item.json.contentSnippet || item.json.text?.substring(0, 300) || '';\n  text += `### [${src}] ${title}\\n`;\n  if (date) text += `Datum: ${date}\\n`;\n  if (url) text += `URL: ${url}\\n`;\n  if (body) text += `${body}\\n\\n`;\n}\n\nconst clean = text.replace(/[\\uD800-\\uDFFF]/g, '');\nreturn [{ json: { haiku_scored: clean, item_count: selected.length, linkedin_count: linkedinItems.length } }];\n"
+      },
+      "id": "format-for-claude",
+      "name": "Rohdaten für Claude formatieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $input.all().length }}",
+              "operation": "largerEqual",
+              "value2": 5
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "threshold-check",
+      "name": "≥ 5 neue Items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "DEDUP_PLACEHOLDER"
+      },
+      "id": "dedup",
+      "name": "Deduplizierung + Zeitfilter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 9
+      },
+      "id": "merge-all",
+      "name": "Alle Quellen zusammenführen",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        992,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.gkv-spitzenverband.de/gkv_spitzenverband/presse/pressemitteilungen_und_statements/rss_pressemitteilungen.xml",
+        "options": {}
+      },
+      "id": "rss-bafin",
+      "name": "RSS: GKV Gesundheitspolitik",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        192,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.heise.de/rss/heise-atom.xml",
+        "options": {}
+      },
+      "id": "rss-heise",
+      "name": "RSS: Heise",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        192,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.aerzteblatt.de/rss/news.asp",
+        "options": {}
+      },
+      "id": "rss-aerzteblatt",
+      "name": "RSS: Ärzteblatt",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        192,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://news.google.com/rss/search?q=vdek+Ersatzkassen&hl=de&gl=DE&ceid=DE:de",
+        "options": {}
+      },
+      "id": "rss-vdek",
+      "name": "RSS: vdek",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        208,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://news.google.com/rss/search?q=GKV-Spitzenverband&hl=de&gl=DE&ceid=DE:de",
+        "options": {}
+      },
+      "id": "rss-gkv",
+      "name": "RSS: GKV-Spitzenverband",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        176,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "linkedin-api-call",
+      "name": "LinkedIn API Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -176,
+        224
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2AZJHqeS0X9NUG2A",
+          "name": "linkdAPI Key"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "LINKEDIN_QUERY_PLACEHOLDER"
+      },
+      "id": "linkedin-query-gen",
+      "name": "LinkedIn Query Generator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -352,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "LINKEDIN_FLATTEN_PLACEHOLDER"
+      },
+      "id": "linkedin-flatten",
+      "name": "LinkedIn Posts aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ted.europa.eu/v3/notices/search",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: 'buyer-country = DEU AND publication-date >= ' + $now.minus({days: 30}).toFormat('yyyyMMdd'), fields: ['publication-number','notice-title','buyer-name','classification-cpv','total-value','estimated-value-proc','publication-date','notice-type'], limit: 250, scope: 'ALL', paginationMode: 'PAGE_NUMBER', page: 1 }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "ted-api",
+      "name": "TED Ausschreibungen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        192,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "trigger-daily",
+      "name": "Täglich 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1056,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "freshness-check",
+              "leftValue": "={{ $json.pubDate }}",
+              "rightValue": "={{ $now.minus({ minutes: 35 }).toISO() }}",
+              "operator": {
+                "type": "dateTime",
+                "operation": "after"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "breaking-filter",
+      "name": "Neu in letzten 35min?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        -160
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Breaking News Check (alle 30min)": {
+      "main": [
+        [
+          {
+            "node": "Google News: Breaking Keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google News: Breaking Keywords": {
+      "main": [
+        [
+          {
+            "node": "Neu in letzten 35min?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML-Email aufbauen": {
+      "main": [
+        [
+          {
+            "node": "Telegram Zusammenfassung",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail versenden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet: Newsletter schreiben": {
+      "main": [
+        [
+          {
+            "node": "HTML-Email aufbauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rohdaten für Claude formatieren": {
+      "main": [
+        [
+          {
+            "node": "Claude Sonnet: Newsletter schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "≥ 5 neue Items?": {
+      "main": [
+        [
+          {
+            "node": "Rohdaten für Claude formatieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplizierung + Zeitfilter": {
+      "main": [
+        [
+          {
+            "node": "≥ 5 neue Items?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS: Krankenkassendirekt Pressemitteilungen": {
+      "main": [
+        [
+          {
+            "node": "Alle Quellen zusammenführen",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "RSS: Krankenkassendirekt": {
+      "main": [
+        [
+          {
+            "node": "Alle Quellen zusammenführen",
+            "type": "main",
+            "index": 8
+          }
+        ]
+      ]
+    },
+    "Alle Quellen zusammenführen": {
+      "main": [
+        [
+          {
+            "node": "Deduplizierung + Zeitfilter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS: GKV Gesundheitspolitik": {
+      "main": [
+        [
+          {
+            "node": "Alle Quellen zusammenführen",
+            "type": "main",
+            "index": 6
+          }
+        ]
+      ]
+    },
+    "RSS: Heise": {
+      "main": [
+        [
+          {
+            "node": "Alle Quellen zusammenführen",
+            "type": "main",
+            "index": 7
+          }
+        ]
+      ]
+    },
+    "RSS: Ärzteblatt": {
+      "main": [
+        [
+          {
+            "node": "Alle Quellen zusammenführen",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "RSS: vdek": {
+      "main": [
+        [
+          {
+            "node": "Alle Quellen zusammenführen",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "RSS: GKV-Spitzenverband": {
+      "main": [
+        [
+          {
+            "node": "Alle Quellen zusammenführen",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "LinkedIn API Call": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn Posts aufbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn Query Generator": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn API Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn Posts aufbereiten": {
+      "main": [
+        [
+          {
+            "node": "Alle Quellen zusammenführen",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "TED Ausschreibungen": {
+      "main": [
+        [
+          {
+            "node": "Alle Quellen zusammenführen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Täglich 06:00": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn Query Generator",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS: Krankenkassendirekt Pressemitteilungen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS: Krankenkassendirekt",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS: GKV Gesundheitspolitik",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS: Heise",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS: Ärzteblatt",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS: vdek",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS: GKV-Spitzenverband",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "TED Ausschreibungen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Neu in letzten 35min?": {
+      "main": [
+        [
+          {
+            "node": "Sofort-Alert via Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "c16db758-03df-439e-9317-da37c2be29ca",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "72c145c2167faf7979814495262c8d3a81ee5c3846c79d49fefb968bc71f5892"
+  },
+  "id": "SRepZZtmoLM5LMnQ",
+  "tags": []
+}
