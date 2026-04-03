@@ -1,25 +1,27 @@
 name: Wöchentlicher KassenInfodienst
 
 on:
+  # DEAKTIVIERT – Workflow läuft jetzt in n8n (http://89.167.14.159:5678/)
   # Jeden Freitag um 09:00 Uhr (UTC+0) → 09:00 Uhr MEZ = 08:00 UTC
   # Für deutsche Zeit (MEZ/MESZ):
   #   Winter (MEZ  = UTC+1): 08:00 UTC = 09:00 MEZ
   #   Sommer (MESZ = UTC+2): 07:00 UTC = 09:00 MESZ
   # → 08:00 UTC ist ein guter Kompromiss
-  schedule:
-    - cron: "0 8 * * 5"
+  # schedule:
+  #   - cron: "0 8 * * 5"
 
   # Manueller Start über GitHub UI (für Tests)
-  workflow_dispatch:
-    inputs:
-      kassen:
-        description: "Nur bestimmte Kassen (leer = alle), z.B.: TK BARMER DAK"
-        required: false
-        default: ""
-      tage:
-        description: "Recherchezeitraum in Tagen"
-        required: false
-        default: "14"
+  # workflow_dispatch:
+  #   inputs:
+  #     kassen:
+  #       description: "Nur bestimmte Kassen (leer = alle), z.B.: TK BARMER DAK"
+  #       required: false
+  #       default: ""
+  #     tage:
+  #       description: "Recherchezeitraum in Tagen"
+  #       required: false
+  #       default: "14"
+  workflow_dispatch: {}
 
 jobs:
   digest:
