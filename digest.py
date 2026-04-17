@@ -749,7 +749,7 @@ Wenn nichts Relevantes: "KEINE_HIGHLIGHTS"."""
     full_text = ""
 
     with client.responses.stream(
-        model="gpt-4o-mini-search-preview",
+        model="gpt-4.1-mini",
         instructions=SYSTEM_PROMPT,
         tools=[{"type": "web_search_preview"}],
         input=user_prompt,
