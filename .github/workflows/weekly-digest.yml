@@ -32,7 +32,7 @@ jobs:
       - name: Code auschecken
         uses: actions/checkout@v4
         with:
-          ref: claude/health-insurance-news-digest-UlvZ8
+          ref: ${{ github.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Python einrichten
@@ -46,7 +46,7 @@ jobs:
 
       - name: Digest erstellen und E-Mail senden
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
@@ -75,8 +75,8 @@ jobs:
           else
             git add last_week.md
             git commit -m "chore: last_week.md Update $(date +%Y-%m-%d)"
-            git pull --rebase origin claude/health-insurance-news-digest-UlvZ8
-            git push origin claude/health-insurance-news-digest-UlvZ8
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin "$GITHUB_REF_NAME"
           fi
 
       - name: Bericht als Artefakt speichern
