@@ -32,7 +32,7 @@ jobs:
       - name: Code auschecken
         uses: actions/checkout@v4
         with:
-          ref: claude/migrate-kasseninfodienst-openai-NNCgY
+          ref: ${{ github.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Python einrichten
@@ -75,8 +75,8 @@ jobs:
           else
             git add last_week.md
             git commit -m "chore: last_week.md Update $(date +%Y-%m-%d)"
-            git pull --rebase origin claude/migrate-kasseninfodienst-openai-NNCgY
-            git push origin claude/migrate-kasseninfodienst-openai-NNCgY
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin "$GITHUB_REF_NAME"
           fi
 
       - name: Bericht als Artefakt speichern
