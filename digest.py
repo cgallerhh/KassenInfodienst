@@ -835,19 +835,17 @@ REGELN:
 
 Schreibe auf Deutsch."""
 
-    with client.chat.completions.stream(
+    completion = client.chat.completions.create(
         model="gpt-4.1",
         max_completion_tokens=4000,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
-    ) as stream:
-        for text in stream.text_stream:
-            print(text, end="", flush=True)
-        print()
-
-        return stream.get_final_completion().choices[0].message.content
+    )
+    result = completion.choices[0].message.content or ""
+    print(result)
+    return result
 
 
 # ---------------------------------------------------------------------------
