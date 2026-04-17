@@ -746,19 +746,14 @@ OUTPUT: Rohdaten strukturiert ausgeben. Wenn nichts Relevantes: nur "KEINE_HIGHL
 Maximal {MAX_SEARCHES} gezielte Web-Suchen. NUR echte Highlights berichten.
 Wenn nichts Relevantes: "KEINE_HIGHLIGHTS"."""
 
-    full_text = ""
-
-    with client.responses.stream(
+    response = client.responses.create(
         model="gpt-4.1-mini",
         instructions=SYSTEM_PROMPT,
         tools=[{"type": "web_search_preview"}],
         input=user_prompt,
-    ) as stream:
-        for text in stream.text_deltas():
-            print(text, end="", flush=True)
-        print()
-
-        full_text = stream.get_final_response().output_text
+    )
+    full_text = response.output_text or ""
+    print(full_text)
 
     return full_text
 
