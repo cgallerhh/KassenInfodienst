@@ -18,7 +18,7 @@ Verwendung:
     python digest.py --tage 30           # Recherchezeitraum in Tagen (Standard: 14)
 """
 
-import anthropic
+import openai
 import argparse
 import httpx
 import os
@@ -698,7 +698,7 @@ def scrape_linkedin_rss(kassen: list[dict], tage: int) -> str:
 # Kern-Funktion: Einen Batch Kassen recherchieren
 # ---------------------------------------------------------------------------
 
-def research_batch(client: anthropic.Anthropic, batch: list[dict], tage: int) -> str:
+def research_batch(client: openai.OpenAI, batch: list[dict], tage: int) -> str:
     """Recherchiert eine einzelne Krankenkasse mittels Claude + Web Search."""
 
     today = date.today()
@@ -748,41 +748,20 @@ Wenn nichts Relevantes: "KEINE_HIGHLIGHTS"."""
 
     full_text = ""
 
-    with client.messages.stream(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1200,
-        system=system_prompt_with_cache(SYSTEM_PROMPT),
-        tools=[
-            {
-                "type": "web_search_20260209",
-                "name": "web_search",
-                "max_uses": MAX_SEARCHES,
-            }
-        ],
-        messages=[{"role": "user", "content": user_prompt}],
-        timeout=API_TIMEOUT,
+    with client.responses.stream(
+        model="gpt-4o-mini-search-preview",
+        instructions=SYSTEM_PROMPT,
+        tools=[{"type": "web_search_preview"}],
+        input=user_prompt,
     ) as stream:
-        for text in stream.text_stream:
+        for text in stream.text_deltas():
             print(text, end="", flush=True)
         print()
 
-        final_message = stream.get_final_message()
-        for block in final_message.content:
-            if hasattr(block, "text") and block.text is not None:
-                full_text += block.text
+        full_text = stream.get_final_response().output_text
 
     return full_text
 
-
-def system_prompt_with_cache(text: str) -> list[dict]:
-    """Verpackt den System-Prompt mit Prompt Caching."""
-    return [
-        {
-            "type": "text",
-            "text": text,
-            "cache_control": {"type": "ephemeral"},
-        }
-    ]
 
 
 # ---------------------------------------------------------------------------
@@ -806,7 +785,7 @@ def save_last_week(newsletter: str, today: date) -> None:
     LAST_WEEK_FILE.write_text(memory, encoding="utf-8")
 
 
-def generate_executive_summary(client: anthropic.Anthropic, all_research: str, today: date) -> str:
+def generate_executive_summary(client: openai.OpenAI, all_research: str, today: date) -> str:
     """Erstellt den kuratierten Newsletter, filtert Wiederholungen aus der letzten Woche heraus."""
 
     last_week = load_last_week()
@@ -861,22 +840,19 @@ REGELN:
 
 Schreibe auf Deutsch."""
 
-    with client.messages.stream(
-        model="claude-sonnet-4-6",
-        max_tokens=4000,
-        system=system_prompt_with_cache(SYSTEM_PROMPT),
-        messages=[{"role": "user", "content": prompt}],
+    with client.chat.completions.stream(
+        model="gpt-4o",
+        max_completion_tokens=4000,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
     ) as stream:
         for text in stream.text_stream:
             print(text, end="", flush=True)
         print()
 
-        final_message = stream.get_final_message()
-        result = ""
-        for block in final_message.content:
-            if hasattr(block, "text") and block.text is not None:
-                result += block.text
-        return result
+        return stream.get_final_completion().choices[0].message.content
 
 
 # ---------------------------------------------------------------------------
@@ -1233,16 +1209,16 @@ def make_report_header(today: date, tage: int, kassen: list[dict]) -> str:
 def main() -> None:
     args = parse_args()
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         print(
-            "Fehler: Umgebungsvariable ANTHROPIC_API_KEY nicht gesetzt.\n"
-            "Tipp: export ANTHROPIC_API_KEY=sk-ant-...",
+            "Fehler: Umgebungsvariable OPENAI_API_KEY nicht gesetzt.\n"
+            "Tipp: export OPENAI_API_KEY=sk-...",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = openai.OpenAI(api_key=api_key, timeout=API_TIMEOUT)
 
     today = date.today()
     kassen = filter_kassen(args)
@@ -1357,7 +1333,7 @@ def main() -> None:
 
         try:
             summary = generate_executive_summary(client, all_research, today)
-        except anthropic.APIError as e:
+        except openai.OpenAIError as e:
             print(f"   ⚠️  Newsletter-Fehler: {e}", file=sys.stderr)
             summary = f"> ⚠️ Newsletter konnte nicht erstellt werden: {e}\n"
 
