@@ -841,7 +841,7 @@ REGELN:
 Schreibe auf Deutsch."""
 
     with client.chat.completions.stream(
-        model="gpt-4o",
+        model="gpt-4.1",
         max_completion_tokens=4000,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
