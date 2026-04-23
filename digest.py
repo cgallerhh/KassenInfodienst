@@ -15,7 +15,7 @@ Verwendung:
     python digest.py                      # Alle Kassen
     python digest.py --kassen TK BARMER  # Nur bestimmte Kassen (Kurzname)
     python digest.py --output mein.md    # Eigener Ausgabepfad
-    python digest.py --tage 30           # Recherchezeitraum in Tagen (Standard: 14)
+    python digest.py --tage 7            # Recherchezeitraum in Tagen (Standard: 7)
 """
 
 import openai
@@ -1332,8 +1332,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tage",
         type=int,
-        default=14,
-        help="Recherchezeitraum in Tagen (Standard: 14)",
+        default=7,
+        help="Recherchezeitraum in Tagen (Standard: 7)",
     )
     parser.add_argument(
         "--kein-summary",

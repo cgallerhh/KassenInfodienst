@@ -19,7 +19,7 @@ on:
       tage:
         description: "Recherchezeitraum in Tagen"
         required: false
-        default: "14"
+        default: "7"
 
 jobs:
   digest:
@@ -64,7 +64,7 @@ jobs:
           fi
 
           TAGE="${{ github.event.inputs.tage }}"
-          TAGE="${TAGE:-14}"
+          TAGE="${TAGE:-7}"
 
           python digest.py $KASSEN_ARG --tage "$TAGE" --email
 
