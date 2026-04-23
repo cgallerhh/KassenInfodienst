@@ -1408,6 +1408,32 @@ def describe_api_key(key: str) -> str:
     return f"{kind}, Länge {len(key)}{suffix}"
 
 
+def preflight_model_access(client: openai.OpenAI, models: list[str]) -> None:
+    """Prüft früh, ob der API-Key die gewünschten Modelle laut Models API sieht."""
+    wanted = list(dict.fromkeys(models))
+    try:
+        available = sorted(m.id for m in client.models.list().data)
+    except Exception as e:
+        print(f"⚠️  Konnte Modellzugriff nicht vorab prüfen: {e}", file=sys.stderr)
+        return
+
+    missing = [model for model in wanted if model not in available]
+    if not missing:
+        print(f"🤖 OpenAI Modelle verfügbar: {', '.join(wanted)}")
+        return
+
+    gpt5_models = [model for model in available if model.startswith("gpt-5")]
+    print(
+        "❌ OpenAI Modellzugriff passt nicht zum gewünschten Setup.\n"
+        f"   Gewünscht: {', '.join(wanted)}\n"
+        f"   Nicht per API sichtbar: {', '.join(missing)}\n"
+        f"   Sichtbare gpt-5-Modelle für diesen Key: {', '.join(gpt5_models) or 'keine'}\n"
+        "   Hinweis: Die Limits-Seite kann Modelle anzeigen, die für diesen konkreten API-Key/Endpoint noch nicht freigeschaltet sind.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def make_report_header(today: date, tage: int, kassen: list[dict]) -> str:
     period_start = (today - timedelta(days=tage)).strftime("%d.%m.%Y")
     period_end = today.strftime("%d.%m.%Y")
@@ -1437,6 +1463,7 @@ def main() -> None:
     print(f"🔐 OpenAI API-Key erkannt: {describe_api_key(api_key)}")
 
     client = openai.OpenAI(api_key=api_key, timeout=API_TIMEOUT)
+    preflight_model_access(client, [RESEARCH_MODEL, SCORING_MODEL, NEWSLETTER_MODEL])
 
     today = date.today()
     kassen = filter_kassen(args)
