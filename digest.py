@@ -54,9 +54,9 @@ MIN_TED_VALUE_EUR = 1_000_000
 MIN_RELEVANCE_SCORE = 4
 MAX_SCORING_ITEMS = 60
 
-RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5.4-2026-03-05"
-SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5.4-2026-03-05"
-NEWSLETTER_MODEL = os.environ.get("OPENAI_NEWSLETTER_MODEL") or "gpt-5.4-2026-03-05"
+RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5-nano"
+SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5-nano"
+NEWSLETTER_MODEL = os.environ.get("OPENAI_NEWSLETTER_MODEL") or "gpt-5-nano"
 
 
 # ---------------------------------------------------------------------------
