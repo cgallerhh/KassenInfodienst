@@ -47,6 +47,9 @@ jobs:
       - name: Digest erstellen und E-Mail senden
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_RESEARCH_MODEL: ${{ secrets.OPENAI_RESEARCH_MODEL }}
+          OPENAI_SCORING_MODEL: ${{ secrets.OPENAI_SCORING_MODEL }}
+          OPENAI_NEWSLETTER_MODEL: ${{ secrets.OPENAI_NEWSLETTER_MODEL }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}

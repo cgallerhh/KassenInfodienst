@@ -21,7 +21,9 @@ Verwendung:
 import openai
 import argparse
 import httpx
+import json
 import os
+import re
 import requests as req
 import smtplib
 import sys
@@ -48,6 +50,13 @@ MAX_RETRIES = 1         # Nur 1 Wiederholung (spart Zeit bei Fehlern)
 API_TIMEOUT = 90        # Timeout pro API-Call in Sekunden – bei Hänger schnell abbrechen
 LAST_WEEK_FILE = Path("last_week.md")   # Gedächtnis: was letzte Woche berichtet wurde
 REPORTS_DIR = Path("reports")
+MIN_TED_VALUE_EUR = 1_000_000
+MIN_RELEVANCE_SCORE = 4
+MAX_SCORING_ITEMS = 60
+
+RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5.4-mini"
+SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5.4-mini"
+NEWSLETTER_MODEL = os.environ.get("OPENAI_NEWSLETTER_MODEL") or "gpt-5.4"
 
 
 # ---------------------------------------------------------------------------
@@ -219,9 +228,56 @@ def search_ted_tenders(kassen: list[dict], tage: int) -> str:
             return float(ev)
         return 0.0
 
+    def _cpv_codes(n: dict) -> list[str]:
+        raw = n.get("classification-cpv") or []
+        if isinstance(raw, (str, int)):
+            raw = [raw]
+        codes: list[str] = []
+        for item in raw:
+            if isinstance(item, dict):
+                item = item.get("code") or item.get("id") or item.get("value") or ""
+            match = re.search(r"\d{2,8}", str(item))
+            if match:
+                codes.append(match.group(0))
+        return codes
+
+    def _is_relevant_tender(n: dict) -> bool:
+        value = _notice_value(n)
+        if value < MIN_TED_VALUE_EUR:
+            return False
+
+        title = str(n.get("notice-title") or "").lower()
+        cpvs = _cpv_codes(n)
+        it_cpv_prefixes = (
+            "30",   # computer equipment
+            "32",   # telecom equipment
+            "48",   # software package
+            "64",   # telecom services
+            "72",   # IT services
+            "793",  # market/economic research
+            "794",  # business/management consulting
+            "795",  # office support/call centre
+        )
+        title_include = {
+            "software", "it-", " it ", "cloud", "daten", "plattform", "portal",
+            "dms", "ecm", "crm", "ki", "künstliche intelligenz", "automatisierung",
+            "digital", "cyber", "security", "informationssicherheit", "servicecenter",
+            "callcenter", "prozess", "beratung", "rechenzentrum", "hosting",
+        }
+        title_exclude = {
+            "reinigung", "bürobedarf", "mobiliar", "möbel", "papier",
+            "postdienst", "catering", "gebäudereinigung", "strom", "gas",
+        }
+        if any(word in title for word in title_exclude):
+            return False
+        return (
+            any(code.startswith(it_cpv_prefixes) for code in cpvs)
+            or any(word in f" {title} " for word in title_include)
+        )
+
     notices = [
         n for n in data.get("notices", [])
-        if is_relevant_kasse(n.get("buyer-name"))
+        if is_relevant_kasse(n.get("buyer-name")) and _is_relevant_tender(n)
     ]
     if not notices:
         return ""
@@ -699,7 +755,7 @@ def scrape_linkedin_rss(kassen: list[dict], tage: int) -> str:
 # ---------------------------------------------------------------------------
 
 def research_batch(client: openai.OpenAI, batch: list[dict], tage: int) -> str:
-    """Recherchiert eine einzelne Krankenkasse mittels Claude + Web Search."""
+    """Recherchiert eine einzelne Krankenkasse mittels OpenAI Web Search."""
 
     today = date.today()
     cutoff = today - timedelta(days=tage)
@@ -716,24 +772,26 @@ Suchfenster: {period_start} – {period_end}
 
 Führe genau 3 Web-Suchen durch:
 
-SUCHE 1 – Aktuelle News & Pressemeldungen:
-"{k['name']}" (KI OR Automatisierung OR Fusion OR Stellenabbau OR Ausschreibung OR Personalwechsel OR Vorstand) after:{after_date}
-→ Nachrichten, Pressemitteilungen, Fachmedien. NUR Inhalte mit Datum im Suchfenster {period_start}–{period_end}.
+SUCHE 1 – Konkrete IT-/Automatisierungs-News:
+"{k['name']}" (KI OR Chatbot OR Automatisierung OR Software OR Cloud OR DMS OR Portal OR Cybersecurity OR Ausschreibung) after:{after_date}
+→ Nur konkrete Projekte, Go-lives, Vergaben, Anbieterwechsel oder messbare Vorhaben.
 
 SUCHE 2 – Branchenmedien & Fachpresse:
-"{k['name']}" site:gkv-spitzenverband.de OR site:aok.de OR site:vdek.com OR site:heise.de after:{after_date}
-→ Offizielle Verlautbarungen, IT-Projekte, Kooperationen. Datum prüfen.
+"{k['name']}" (CIO OR CDO OR IT-Leiter OR Vorstand Digital OR Geschäftsbereich Digitalisierung OR Stellenabbau) after:{after_date}
+→ Personal- und Organisationssignale nur berichten, wenn sie Vertriebsrelevanz für IT/BPO/Automatisierung haben.
 
 SUCHE 3 – Flurfunk & Branchengerüchte:
-"{k['name']}" (Fusion OR Zusammenschluss OR Verwaltungsrat OR BaFin OR Konflikt OR Streit OR Gerücht OR Insolvenz OR Beitrag OR Zusatzbeitrag) after:{after_date}
+"{k['name']}" (Fusion OR Zusammenschluss OR Verwaltungsrat OR BaFin OR Konflikt OR Streit OR Gerücht OR Insolvenz) after:{after_date}
 → Gossip, politische Konflikte, Fusionsgerüchte, Verwaltungsratszwist, BaFin-Beobachtungen.
-  Auch Beitragssatzänderungen >0.3% oder ungewöhnliche Zusatzbeitrags-Moves.
   Datum prüfen – nur Inhalte aus {period_start}–{period_end}.
 
 ZEITREGEL: Nur Inhalte aus {period_start}–{period_end} berichten.
 Bekannte Vorstandsänderungen (2025, 1.1.2026, 1.4.2026): IGNORIEREN.
+NICHT berichten: allgemeine Beitragssatzmeldungen, ePA-Pflicht, Gesundheitsratgeber, Kampagnen,
+Awards, Prävention, Selbstlob-Pressemitteilungen ohne konkretes IT-/Strategie-Ereignis.
 
-OUTPUT: Rohdaten strukturiert ausgeben. Wenn nichts Relevantes: nur "KEINE_HIGHLIGHTS"."""
+OUTPUT: Maximal 5 Rohmeldungen mit Datum, Quelle/URL, Kategorie und Vertriebsrelevanz.
+Wenn nichts Relevantes: nur "KEINE_HIGHLIGHTS"."""
     else:
         kassen_liste = "\n".join(
             f"- **{ki['name']}** | {ki['url']}"
@@ -747,7 +805,7 @@ Maximal {MAX_SEARCHES} gezielte Web-Suchen. NUR echte Highlights berichten.
 Wenn nichts Relevantes: "KEINE_HIGHLIGHTS"."""
 
     response = client.responses.create(
-        model="gpt-4.1-mini",
+        model=RESEARCH_MODEL,
         instructions=SYSTEM_PROMPT,
         tools=[{"type": "web_search_preview"}],
         input=user_prompt,
@@ -756,6 +814,135 @@ Wenn nichts Relevantes: "KEINE_HIGHLIGHTS"."""
     print(full_text)
 
     return full_text
+
+
+def _extract_candidate_items(all_research: str) -> list[dict]:
+    """Zerlegt Rohdaten in bewertbare Einheiten, ohne lange Quellenblöcke zu verlieren."""
+    items: list[dict] = []
+    current_section = "Rohdaten"
+    current_kasse = ""
+
+    for raw_line in all_research.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("## "):
+            current_section = line.lstrip("# ").strip()
+            continue
+        if line.startswith("**") and line.endswith(":"):
+            current_kasse = line.strip("*: ")
+            continue
+        if line.startswith(("- ", "* ", "  - ")) or re.match(r"^\d+\.\s+", line):
+            text = re.sub(r"^\d+\.\s+", "", line).lstrip("-* ").strip()
+            if len(text) >= 25:
+                items.append({
+                    "id": f"item_{len(items) + 1}",
+                    "section": current_section,
+                    "kasse": current_kasse,
+                    "text": text[:1200],
+                })
+
+    if items:
+        return items[:MAX_SCORING_ITEMS]
+
+    blocks = [b.strip() for b in re.split(r"\n(?=###? |\*\*.+\*\*:)", all_research) if b.strip()]
+    for block in blocks[:MAX_SCORING_ITEMS]:
+        if len(block) >= 40 and "KEINE_HIGHLIGHTS" not in block:
+            items.append({
+                "id": f"item_{len(items) + 1}",
+                "section": current_section,
+                "kasse": "",
+                "text": block[:1200],
+            })
+    return items
+
+
+def score_research_items(client: openai.OpenAI, all_research: str) -> str:
+    """Filtert Rohmeldungen per strukturierter Relevanzbewertung vor dem Newsletter."""
+    items = _extract_candidate_items(all_research)
+    if not items:
+        return ""
+
+    scoring_prompt = f"""Bewerte Rohmeldungen für den KassenInfodienst.
+Zielgruppe: erfahrener B2B-IT-Vertriebler im GKV-Markt.
+
+Score 5 = unmittelbare Vertriebschance oder starkes strategisches Signal.
+Score 4 = klar relevant, konkret, belegt, mit IT-/Automatisierungs-/Organisationsbezug.
+Score 3 = interessant, aber schwach oder indirekt.
+Score 1-2 = Rauschen.
+
+Streng ausschließen:
+- allgemeine Beitragssatzmeldungen
+- ePA-Pflicht oder gesetzliche Pflichtthemen ohne kassenspezifische Differenzierung
+- Prävention, Gesundheitsratgeber, Awards, Kampagnen, allgemeines Selbstlob
+- Pressemitteilungen ohne konkretes Projekt, Namen, Frist, Volumen oder neues Ereignis
+- Ausschreibungen unter 1 Mio EUR oder ohne IT-/Strategie-/BPO-Bezug
+- alte oder undatierte Meldungen, wenn keine aktuelle Entwicklung erkennbar ist
+
+Antworte als JSON-Objekt:
+{{
+  "items": [
+    {{
+      "id": "item_1",
+      "score": 1,
+      "category": "LinkedIn|Personal|Ausschreibung|Automatisierung|Flurfunk|Sonstiges",
+      "keep": false,
+      "sales_relevance": "kurz",
+      "exclude_reason": "kurz, leer wenn keep=true"
+    }}
+  ]
+}}
+
+Rohmeldungen:
+{json.dumps(items, ensure_ascii=False)}"""
+
+    try:
+        completion = client.chat.completions.create(
+            model=SCORING_MODEL,
+            max_completion_tokens=6000,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "Du bist ein strenger GKV-Relevanzfilter. Du bewertest nüchtern, nicht journalistisch."},
+                {"role": "user", "content": scoring_prompt},
+            ],
+        )
+        raw = completion.choices[0].message.content or "{}"
+        data = json.loads(raw)
+    except Exception as e:
+        print(f"   ⚠️  Scoring fehlgeschlagen, nutze Rohdaten ungefiltert: {e}", file=sys.stderr)
+        return all_research
+
+    decisions = {
+        str(item.get("id")): item
+        for item in data.get("items", [])
+        if isinstance(item, dict)
+    }
+
+    kept: list[str] = []
+    dropped = 0
+    for item in items:
+        decision = decisions.get(item["id"], {})
+        score = int(decision.get("score") or 0)
+        keep = bool(decision.get("keep")) and score >= MIN_RELEVANCE_SCORE
+        if not keep:
+            dropped += 1
+            continue
+
+        category = str(decision.get("category") or item["section"])
+        relevance = str(decision.get("sales_relevance") or "").strip()
+        header_bits = [category]
+        if item.get("kasse"):
+            header_bits.append(item["kasse"])
+        kept.append(
+            "### " + " | ".join(header_bits) + f" | Score {score}\n"
+            + item["text"]
+            + (f"\nVertriebsrelevanz: {relevance}" if relevance else "")
+        )
+
+    print(f"   🧹 Relevanzfilter: {len(kept)} behalten, {dropped} verworfen.")
+    if not kept:
+        return ""
+    return "## Kuratierte Rohmeldungen\n\n" + "\n\n".join(kept)
 
 
 
@@ -768,7 +955,7 @@ def load_last_week() -> str:
     if not LAST_WEEK_FILE.exists():
         return ""
     raw = LAST_WEEK_FILE.read_text(encoding="utf-8")
-    # Markdown-Header entfernen damit Claude sie nicht in den neuen Newsletter kopiert
+    # Markdown-Header entfernen, damit alte Überschriften nicht in den neuen Newsletter wandern
     lines = [l for l in raw.splitlines() if not l.startswith("#")]
     return "\n".join(lines).strip()
 
@@ -826,6 +1013,8 @@ Wenn Gerücht: explizit kennzeichnen. Lieber einen pointierten Flurfunk als kein
 REGELN:
 - KEINEN Titel ausgeben – Header kommt automatisch
 - "KEINE_HIGHLIGHTS"-Einträge ignorieren
+- Nur Meldungen aus den kuratierten Rohdaten verwenden, keine neuen Fakten ergänzen
+- Keine Meldung aufnehmen, wenn Datum, Quelle oder konkreter Anlass unklar bleibt
 - Keine Vorstandsänderungen vor dem Recherchezeitraum
 - Keine Wiederholungen aus letzter Woche (außer bei Entwicklung)
 - Tonalität: DFG-Branchenbrief – investigativ, meinungsstark, personalisiert, mit Namen
@@ -836,7 +1025,7 @@ REGELN:
 Schreibe auf Deutsch."""
 
     completion = client.chat.completions.create(
-        model="gpt-4.1",
+        model=NEWSLETTER_MODEL,
         max_completion_tokens=4000,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -1051,7 +1240,7 @@ def build_html_email(report_content: str, today: date) -> str:
     </div>
 
     <div class="footer">
-      Erstellt mit Claude Sonnet&nbsp;4.6 &bull; {date_str}<br>
+      Erstellt mit OpenAI &bull; {date_str}<br>
       <a href="https://github.com/cgallerhh/KassenInfodienst">github.com/cgallerhh/KassenInfodienst</a>
     </div>
 
@@ -1184,6 +1373,41 @@ def filter_kassen(args: argparse.Namespace) -> list[dict]:
     return result
 
 
+def normalize_openai_api_key(raw: str | None) -> str:
+    """Bereinigt typische Secret-Copy-Paste-Artefakte, ohne den Key zu verändern."""
+    key = (raw or "").strip().replace("\xa0", "")
+    if not key:
+        return ""
+
+    if key.startswith(("'", '"')) and key.endswith(("'", '"')) and len(key) > 2:
+        key = key[1:-1].strip()
+    if key.lower().startswith("bearer "):
+        key = key[7:].strip()
+    if key.startswith("OPENAI_API_KEY="):
+        key = key.split("=", 1)[1].strip()
+    return key
+
+
+def describe_api_key(key: str) -> str:
+    """Gibt nur harmlose Metadaten aus, nie den API-Key selbst."""
+    if key.startswith("sk-proj-"):
+        kind = "Project-Key"
+    elif key.startswith("sk-"):
+        kind = "Secret-Key"
+    else:
+        kind = "ungewöhnliches Format"
+
+    has_space = any(ch.isspace() for ch in key)
+    flags = []
+    if has_space:
+        flags.append("enthält Leerzeichen/Zeilenumbruch")
+    if len(key) < 20:
+        flags.append("auffällig kurz")
+
+    suffix = f"; Hinweis: {', '.join(flags)}" if flags else ""
+    return f"{kind}, Länge {len(key)}{suffix}"
+
+
 def make_report_header(today: date, tage: int, kassen: list[dict]) -> str:
     period_start = (today - timedelta(days=tage)).strftime("%d.%m.%Y")
     period_end = today.strftime("%d.%m.%Y")
@@ -1202,7 +1426,7 @@ def make_report_header(today: date, tage: int, kassen: list[dict]) -> str:
 def main() -> None:
     args = parse_args()
 
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = normalize_openai_api_key(os.environ.get("OPENAI_API_KEY"))
     if not api_key:
         print(
             "Fehler: Umgebungsvariable OPENAI_API_KEY nicht gesetzt.\n"
@@ -1210,6 +1434,7 @@ def main() -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+    print(f"🔐 OpenAI API-Key erkannt: {describe_api_key(api_key)}")
 
     client = openai.OpenAI(api_key=api_key, timeout=API_TIMEOUT)
 
@@ -1315,8 +1540,14 @@ def main() -> None:
     if ted_section:
         all_research_parts.insert(0, ted_section)
     all_research = "\n\n".join(all_research_parts)
-    highlights_count = len(all_research_parts)
-    print(f"\n📊 {highlights_count}/{len(kassen)} Quellen mit Highlights.")
+    raw_highlights_count = len(all_research_parts)
+
+    if all_research.strip():
+        print("🧹 Bewerte Relevanz und filtere Rauschen ...")
+        all_research = score_research_items(client, all_research)
+
+    highlights_count = len(_extract_candidate_items(all_research)) if all_research.strip() else 0
+    print(f"\n📊 {highlights_count} kuratierte Meldung(en) aus {raw_highlights_count} Rohquellen.")
 
     summary = ""
     if not args.kein_summary and highlights_count > 0:
