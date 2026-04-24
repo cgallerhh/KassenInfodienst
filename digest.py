@@ -425,16 +425,24 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                 "ki ", "künstliche intelligenz", "automatisierung", "digitalisierung",
                 "software", "cloud", "plattform", " api ", "daten", "system",
                 "it-", "cyber", "sicherheit", "technologie", "agil", "scrum",
+                "portal", "app", "online", "service", "prozess", "innovation",
+                "strategie", "transformation", "projekt", "kooperation",
             }
             text_lower = text.lower()
+            actor_blob = f"{actor_name} {actor_title}".lower()
             is_entscheider = any(k in actor_title for k in ENTSCHEIDER)
+            is_company_or_kasse = (
+                kasse["short"].lower() in actor_blob
+                or kasse["name"].lower() in actor_blob
+                or kasse["linkedin_search"].lower() in actor_blob
+                or kasse["short"].lower() in text_lower
+                or kasse["name"].lower() in text_lower
+            )
             is_it_thema = any(k in text_lower for k in THEMEN_IT)
-            is_viral = reactions >= 50
+            is_viral = reactions >= 20
 
-            # Nur Entscheider-Posts; davon nur IT-Themen oder virale Posts
-            if not is_entscheider:
-                continue
-            if not is_it_thema and not is_viral:
+            # Behalten: Entscheiderposts, kassennahe Digital-/Strategiethemen oder merklich resonante Posts.
+            if not (is_entscheider or (is_company_or_kasse and is_it_thema) or (is_company_or_kasse and is_viral)):
                 continue
 
             post_date = datetime.fromtimestamp(ts / 1000).strftime("%d.%m.%Y") if ts else "?"
@@ -1121,6 +1129,21 @@ Schreibe auf Deutsch."""
     return result
 
 
+def build_empty_summary(raw_highlights_count: int, today: date) -> str:
+    """Erzeugt eine sichtbare, nicht-leere Mail, wenn der Relevanzfilter alles verwirft."""
+    return f"""## Keine vertriebsrelevanten Highlights
+
+Der automatische Lauf hat heute keine Meldungen gefunden, die den Relevanzfilter fuer den GKV-IT-Vertrieb passiert haben.
+
+**Quellenlage**
+- Rohquellen mit Treffern vor dem KI-Filter: {raw_highlights_count}
+- Nach Relevanzfilter: 0 kuratierte Meldungen
+- Stichtag: {today.strftime('%d.%m.%Y')}
+
+Das ist kein technischer Fehler: Die Suche lief durch, aber es gab keine belastbaren Signale mit konkretem IT-, Automatisierungs-, Ausschreibungs-, Personal- oder Flurfunkbezug.
+"""
+
+
 # ---------------------------------------------------------------------------
 # HTML-E-Mail
 # ---------------------------------------------------------------------------
@@ -1639,17 +1662,17 @@ def main() -> None:
             post_count = linkedin_data.count("\n  - [")
             print(f"   ✅ {post_count} LinkedIn-Posts via LinkdAPI.")
         else:
-            print("   ℹ️  Keine LinkedIn-Posts via LinkdAPI (Credits leer oder kein Treffer).")
-    elif os.environ.get("LINKEDIN_LI_AT"):
+            print("   ℹ️  Keine LinkedIn-Posts via LinkdAPI – versuche Fallback.")
+    if not linkedin_data and os.environ.get("LINKEDIN_LI_AT"):
         print("🔗 LinkedIn Voyager-API (li_at-Session, inkl. BITMARCK + ITSC) ...")
         linkedin_data = scrape_linkedin_voyager(linkedin_targets, args.tage)
         if linkedin_data:
             post_count = linkedin_data.count("\n  - [")
             print(f"   ✅ {post_count} LinkedIn-Posts via Voyager-API.")
         else:
-            print("   ℹ️  Keine LinkedIn-Posts (li_at abgelaufen oder CI-Block).")
-    else:
-        print("🔗 LinkedIn web_search Fallback (kein API-Key gesetzt) ...")
+            print("   ℹ️  Keine LinkedIn-Posts via Voyager – versuche RSS-Fallback.")
+    if not linkedin_data:
+        print("🔗 LinkedIn RSS-Fallback ...")
         linkedin_data = scrape_linkedin_rss(linkedin_targets, args.tage)
         if linkedin_data:
             print("   ✅ LinkedIn-RSS-Findings gesammelt.")
@@ -1691,7 +1714,7 @@ def main() -> None:
 
         print("   ✅ Fertig.")
     elif highlights_count == 0:
-        summary = "*Keine berichtenswerten Highlights in dieser Woche gefunden.*\n"
+        summary = build_empty_summary(raw_highlights_count, today)
 
     # Finalen Newsletter schreiben (Header + kuratierter Inhalt)
     header = make_report_header(today, args.tage, kassen)
