@@ -963,6 +963,12 @@ Score 4 = klar relevant, konkret, belegt, mit IT-/Automatisierungs-/Organisation
 Score 3 = interessant, aber schwach oder indirekt.
 Score 1-2 = Rauschen.
 
+LinkedIn-Regel:
+- LinkedIn-Posts mit Kassen-/BITMARCK-/ITSC-Bezug ab Score 3 behalten, wenn sie
+  Digital-, IT-, Service-, Organisations-, Personal-, Strategie- oder Projektbezug haben.
+- LinkedIn darf auch als schwaches Signal behalten werden, wenn es fuer Account-Timing,
+  Beziehungspflege oder Gespraechsanlass nuetzlich ist.
+
 Streng ausschließen:
 - allgemeine Beitragssatzmeldungen
 - ePA-Pflicht oder gesetzliche Pflichtthemen ohne kassenspezifische Differenzierung
@@ -1011,30 +1017,44 @@ Rohmeldungen:
     }
 
     kept: list[str] = []
+    fallback: list[str] = []
     dropped = 0
     for item in items:
         decision = decisions.get(item["id"], {})
         score = int(decision.get("score") or 0)
-        keep = bool(decision.get("keep")) and score >= MIN_RELEVANCE_SCORE
+        category = str(decision.get("category") or item["section"])
+        is_linkedin = "linkedin" in f"{item.get('section', '')} {category} {item.get('text', '')}".lower()
+        keep_threshold = 3 if is_linkedin else MIN_RELEVANCE_SCORE
+        keep = (bool(decision.get("keep")) or is_linkedin) and score >= keep_threshold
         if not keep:
             dropped += 1
+            reason = str(decision.get("exclude_reason") or "kein Grund angegeben").strip()
+            print(f"      verworfen {item['id']} Score {score}: {reason}", file=sys.stderr)
             continue
 
-        category = str(decision.get("category") or item["section"])
         relevance = str(decision.get("sales_relevance") or "").strip()
         header_bits = [category]
         if item.get("kasse"):
             header_bits.append(item["kasse"])
-        kept.append(
+        block = (
             "### " + " | ".join(header_bits) + f" | Score {score}\n"
             + item["text"]
             + (f"\nVertriebsrelevanz: {relevance}" if relevance else "")
         )
+        if is_linkedin and score == 3:
+            fallback.append(block)
+        else:
+            kept.append(block)
 
     print(f"   🧹 Relevanzfilter: {len(kept)} behalten, {dropped} verworfen.")
-    if not kept:
+    if not kept and not fallback:
         return ""
-    return "## Kuratierte Rohmeldungen\n\n" + "\n\n".join(kept)
+    parts: list[str] = []
+    if kept:
+        parts.append("## Kuratierte Rohmeldungen\n\n" + "\n\n".join(kept))
+    if fallback:
+        parts.append("## LinkedIn-Radar Rohsignale\n\n" + "\n\n".join(fallback[:8]))
+    return "\n\n".join(parts)
 
 
 
