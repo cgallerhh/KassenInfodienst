@@ -56,14 +56,16 @@ jobs:
           LINKEDIN_LI_AT: ${{ secrets.LINKEDIN_LI_AT }}
           LINKEDIN_JSESSIONID: ${{ secrets.LINKEDIN_JSESSIONID }}
           LINKDAPI_KEY: ${{ secrets.LINKDAPI_KEY }}
+          INPUT_KASSEN: ${{ github.event.inputs.kassen || '' }}
+          INPUT_TAGE: ${{ github.event.inputs.tage || '7' }}
         run: |
           # Kassen-Filter aus manuellem Aufruf
           KASSEN_ARG=""
-          if [ -n "${{ github.event.inputs.kassen }}" ]; then
-            KASSEN_ARG="--kassen ${{ github.event.inputs.kassen }}"
+          if [ -n "$INPUT_KASSEN" ]; then
+            KASSEN_ARG="--kassen $INPUT_KASSEN"
           fi
 
-          TAGE="${{ github.event.inputs.tage }}"
+          TAGE="$INPUT_TAGE"
           TAGE="${TAGE:-7}"
 
           python digest.py $KASSEN_ARG --tage "$TAGE" --email
