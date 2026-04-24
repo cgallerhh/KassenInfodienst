@@ -57,6 +57,7 @@ MAX_SCORING_ITEMS = 60
 RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5-nano"
 SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5-nano"
 NEWSLETTER_MODEL = os.environ.get("OPENAI_NEWSLETTER_MODEL") or "gpt-5-nano"
+ENABLE_OPENAI_WEB_RESEARCH = os.environ.get("ENABLE_OPENAI_WEB_RESEARCH", "").lower() in {"1", "true", "yes"}
 
 
 # ---------------------------------------------------------------------------
@@ -746,6 +747,81 @@ def scrape_linkedin_rss(kassen: list[dict], tage: int) -> str:
     if not all_findings:
         return ""
     lines = ["## 📣 LinkedIn-RSS-Findings (Fallback ohne li_at)\n"]
+    lines.extend(all_findings)
+    return "\n".join(lines)
+
+
+def scrape_news_rss(kassen: list[dict], tage: int) -> str:
+    """Schneller News-Fallback via Google News RSS, ohne OpenAI Web Search."""
+    today = date.today()
+    cutoff = today - timedelta(days=tage)
+    after_date = cutoff.strftime("%Y-%m-%d")
+
+    include_terms = {
+        "ki", "chatbot", "automatisierung", "software", "cloud", "dms", "portal",
+        "cyber", "security", "ausschreibung", "vergabe", "fusion", "zusammenschluss",
+        "verwaltungsrat", "bafin", "stellenabbau", "cio", "cdo", "digital",
+        "it-", "vorstand",
+    }
+    exclude_terms = {
+        "prävention", "ratgeber", "bonus", "gesundheitstag", "gewinnspiel",
+        "podcast", "rezept", "sport", "ernährung", "e-pa", "epa",
+        "beitragssatz", "zusatzbeitrag",
+    }
+
+    HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+    }
+
+    all_findings: list[str] = []
+    seen_links: set[str] = set()
+
+    for kasse in kassen:
+        company = kasse["name"]
+        query = (
+            f'"{company}" '
+            '(KI OR Chatbot OR Automatisierung OR Software OR Cloud OR DMS OR Portal OR '
+            'Cybersecurity OR Ausschreibung OR Vergabe OR Fusion OR BaFin OR CIO OR CDO OR Stellenabbau) '
+            f'after:{after_date}'
+        )
+        rss_url = (
+            "https://news.google.com/rss/search?q="
+            + urllib.parse.quote(query)
+            + "&hl=de&gl=DE&ceid=DE:de"
+        )
+
+        findings: list[str] = []
+        try:
+            resp = req.get(rss_url, headers=HEADERS, timeout=10)
+            if resp.status_code != 200:
+                continue
+            for title, link in _parse_rss_xml(resp.text, cutoff)[:8]:
+                title_lower = title.lower()
+                if link in seen_links:
+                    continue
+                if any(term in title_lower for term in exclude_terms):
+                    continue
+                if not any(term in title_lower for term in include_terms):
+                    continue
+                seen_links.add(link)
+                findings.append(f"  - {title} → {link}")
+                if len(findings) >= 3:
+                    break
+        except Exception as e:
+            print(f"   ⚠️  News-RSS {kasse['short']}: {e}", file=sys.stderr)
+
+        if findings:
+            all_findings.append(f"**{kasse['short']}** (News/RSS):")
+            all_findings.extend(findings)
+            all_findings.append("")
+
+    if not all_findings:
+        return ""
+    lines = ["## 📰 News-RSS-Findings (schneller Scheduled-Run)\n"]
     lines.extend(all_findings)
     return "\n".join(lines)
 
@@ -1497,48 +1573,60 @@ def main() -> None:
         print("   ℹ️  Keine TED-Ausschreibungen im Zeitraum gefunden.")
     print()
 
-    # Kassen in Batches aufteilen – BITMARCK + ITSC werden auch recherchiert,
-    # aber nicht für TED (sie sind Anbieter, keine Einkäufer)
+    # Schneller Scheduled-Standard: deterministische News-RSS-Suche statt OpenAI Web Search.
+    print("📰 News-RSS abrufen ...")
+    news_data = scrape_news_rss(kassen + BEOBACHTETE_ORGS, args.tage)
+    if news_data:
+        news_count = news_data.count("\n  - ")
+        print(f"   ✅ {news_count} News-RSS-Treffer gesammelt.")
+        all_research_parts: list[str] = [news_data]
+    else:
+        print("   ℹ️  Keine News-RSS-Treffer.")
+        all_research_parts = []
+    print()
+
+    # Optional: OpenAI Web Search. Für Cron standardmäßig aus, weil es bei allen Kassen
+    # zu langsam/fragil ist. Bei Bedarf ENABLE_OPENAI_WEB_RESEARCH=true setzen.
     research_targets = kassen + BEOBACHTETE_ORGS
-    batches = [research_targets[i : i + BATCH_SIZE] for i in range(0, len(research_targets), BATCH_SIZE)]
-    all_research_parts: list[str] = []
+    if ENABLE_OPENAI_WEB_RESEARCH:
+        batches = [research_targets[i : i + BATCH_SIZE] for i in range(0, len(research_targets), BATCH_SIZE)]
 
-    for idx, batch in enumerate(batches, 1):
-        batch_names = " | ".join(k["short"] for k in batch)
-        print(f"📡 Batch {idx}/{len(batches)}: {batch_names} ...")
+        for idx, batch in enumerate(batches, 1):
+            batch_names = " | ".join(k["short"] for k in batch)
+            print(f"📡 OpenAI Web-Research Batch {idx}/{len(batches)}: {batch_names} ...")
 
-        research = ""
-        for attempt in range(1, MAX_RETRIES + 2):
-            try:
-                research = research_batch(client, batch, args.tage)
-                break
-            except (httpx.TimeoutException, httpx.ReadTimeout) as e:
-                print(f"   ⏰ Timeout (Versuch {attempt}) – überspringe", file=sys.stderr)
-                if attempt <= MAX_RETRIES:
-                    time.sleep(15)
-                else:
+            research = ""
+            for attempt in range(1, MAX_RETRIES + 2):
+                try:
+                    research = research_batch(client, batch, args.tage)
+                    break
+                except (httpx.TimeoutException, httpx.ReadTimeout) as e:
+                    print(f"   ⏰ Timeout (Versuch {attempt}) – überspringe", file=sys.stderr)
                     research = ""
-            except Exception as e:
-                err_str = str(e)
-                is_overload = "overloaded" in err_str.lower() or "529" in err_str
-                wait = 45 if is_overload else 15
-                print(f"   ⚠️  Fehler (Versuch {attempt}): {e}", file=sys.stderr)
-                if attempt <= MAX_RETRIES:
-                    print(f"   ⏳ Warte {wait}s vor Retry ...", file=sys.stderr)
-                    time.sleep(wait)
-                else:
-                    research = ""
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    is_overload = "overloaded" in err_str.lower() or "529" in err_str
+                    wait = 45 if is_overload else 15
+                    print(f"   ⚠️  Fehler (Versuch {attempt}): {e}", file=sys.stderr)
+                    if attempt <= MAX_RETRIES:
+                        print(f"   ⏳ Warte {wait}s vor Retry ...", file=sys.stderr)
+                        time.sleep(wait)
+                    else:
+                        research = ""
 
-        # Nur echte Highlights sammeln (KEINE_HIGHLIGHTS ignorieren)
-        if research.strip() and "KEINE_HIGHLIGHTS" not in research:
-            all_research_parts.append(research)
+            # Nur echte Highlights sammeln (KEINE_HIGHLIGHTS ignorieren)
+            if research.strip() and "KEINE_HIGHLIGHTS" not in research:
+                all_research_parts.append(research)
 
-        print(f"   ✅ Fertig.")
+            print(f"   ✅ Fertig.")
 
-        # Pause zwischen Batches (Search-Rate-Limit vermeiden)
-        if idx < len(batches):
-            print(f"   ⏳ Pause {BATCH_PAUSE}s ...")
-            time.sleep(BATCH_PAUSE)
+            # Pause zwischen Batches (Search-Rate-Limit vermeiden)
+            if idx < len(batches):
+                print(f"   ⏳ Pause {BATCH_PAUSE}s ...")
+                time.sleep(BATCH_PAUSE)
+    else:
+        print("📡 OpenAI Web-Research übersprungen (ENABLE_OPENAI_WEB_RESEARCH nicht gesetzt).")
 
     # LinkedIn-Posts scrapen: LinkdAPI > Voyager-API > RSS-Fallback
     # BITMARCK + ITSC nur im LinkedIn-Radar, nicht im Web-Research
