@@ -43,11 +43,11 @@ except ImportError:
 
 from kassen import KASSEN, BEOBACHTETE_ORGS
 
-BATCH_SIZE = 1          # Eine Kasse pro API-Call (verhindert parallele Search-Floods)
-MAX_SEARCHES = 3        # 2 News-Suchen + 1 LinkedIn-Fallback
-BATCH_PAUSE = 8         # Sekunden Pause zwischen Calls (kurz halten – Rate-Limit reset ist schnell)
-MAX_RETRIES = 1         # Nur 1 Wiederholung (spart Zeit bei Fehlern)
-API_TIMEOUT = 90        # Timeout pro API-Call in Sekunden – bei Hänger schnell abbrechen
+BATCH_SIZE = 5          # Mehrere Accounts pro Web-Research-Call, damit Weekly unter dem Actions-Limit bleibt
+MAX_SEARCHES = 6        # Gezielte Suchen pro Batch
+BATCH_PAUSE = 2         # Kurze Pause zwischen Batches
+MAX_RETRIES = 0         # Scheduled Runs sollen weiterlaufen statt an einem hängenden Batch zu kleben
+API_TIMEOUT = 75        # Timeout pro API-Call in Sekunden – bei Hänger schnell abbrechen
 LAST_WEEK_FILE = Path("last_week.md")   # Gedächtnis: was letzte Woche berichtet wurde
 REPORTS_DIR = Path("reports")
 MIN_TED_VALUE_EUR = 1_000_000
@@ -801,7 +801,15 @@ Wenn nichts Relevantes: nur "KEINE_HIGHLIGHTS"."""
 
 {kassen_liste}
 
-Maximal {MAX_SEARCHES} gezielte Web-Suchen. NUR echte Highlights berichten.
+Maximal {MAX_SEARCHES} gezielte Web-Suchen für den gesamten Batch.
+Priorisiere nur harte Signale:
+- konkrete IT-/Automatisierungsprojekte
+- Ausschreibungen/Vergaben mit IT-, BPO- oder Strategiebezug
+- relevante Personalwechsel im Digital-/IT-/Vorstandsbereich
+- Fusions-, BaFin-, Verwaltungsrats- oder Stellenabbau-Signale
+
+Keine allgemeinen Beitragssatzmeldungen, Prävention, Awards, Ratgeber, ePA-Pflicht oder Selbstlob-Pressemitteilungen.
+Maximal 8 Rohmeldungen für den gesamten Batch, jeweils mit Datum und Quelle/URL.
 Wenn nichts Relevantes: "KEINE_HIGHLIGHTS"."""
 
     response = client.responses.create(
