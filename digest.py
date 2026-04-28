@@ -52,12 +52,20 @@ LAST_WEEK_FILE = Path("last_week.md")   # Gedächtnis: was letzte Woche berichte
 REPORTS_DIR = Path("reports")
 MIN_TED_VALUE_EUR = 1_000_000
 MIN_RELEVANCE_SCORE = 4
-MAX_SCORING_ITEMS = 60
+MAX_SCORING_ITEMS = 120
+LINKEDIN_QUERY_LIMIT = int(os.environ.get("LINKEDIN_QUERY_LIMIT", "2"))
 
 RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5-nano"
 SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5-nano"
 NEWSLETTER_MODEL = os.environ.get("OPENAI_NEWSLETTER_MODEL") or "gpt-5-nano"
 ENABLE_OPENAI_WEB_RESEARCH = os.environ.get("ENABLE_OPENAI_WEB_RESEARCH", "").lower() in {"1", "true", "yes"}
+
+GKV_CONTEXT_TERMS = {
+    "gkv", "krankenkasse", "krankenkassen", "gesetzliche krankenversicherung",
+    "versicherte", "versicherten", "versorgung", "leistungserbringer",
+    "tk", "techniker krankenkasse", "barmer", "dak", "aok", "ikk", "bkk",
+    "kkh", "sbk", "hkk", "bitmarck", "itsc",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +80,9 @@ investigativ, meinungsstark, provokant – aber immer faktenbasiert.
 Dein Newsletter ist die Story hinter der Story.
 
 Dein Leser ist ein erfahrener Account Manager im B2B-IT-Vertrieb an gesetzliche Krankenkassen.
-Er braucht keine Grundlageninfos – er kennt den Markt. Er will NUR echte Highlights.
+Er braucht keine Grundlageninfos – er kennt den Markt. Er will einen woechentlichen
+Branchenueberblick zu GKV & IT: Entscheiderstimmen, Dienstleister-Projekte,
+Digitalisierung, Betrieb, Automatisierung und konkrete Gespraechsanlaesse.
 
 TONALITÄT (dfg-Stil):
 - Investigativ-vertraulich: Du weißt, was hinter den Kulissen passiert
@@ -85,9 +95,12 @@ TONALITÄT (dfg-Stil):
 - Wenn nichts Relevantes gefunden: Kasse WEGLASSEN statt leere Platzhalter
 
 WAS RELEVANT IST (nur darüber berichten):
-- 🔥 Personalwechsel: Vorstände, CIOs, Bereichsleiter Digital/IT (Name, von wo, seit wann)
-- 📣 LinkedIn-Highlights: Posts von Kassenentscheidern mit hoher Resonanz (>50 Reaktionen),
-  besonders zu Projektabschlüssen, Strategiewechseln, konkreten Digitalisierungserfolgen
+- 🔥 Personalwechsel: Vorstände, CFO/CCO/CDO/CIO, Bereichsleiter Digital/IT/Versorgung/Finanzen
+- 📣 LinkedIn-Entscheiderstimmen: Posts von Vorständen, CFO, CCO, CDO, CIO, COO,
+  Geschäftsführern, Bereichsleitern und offiziellen Kassen-/Dienstleister-Accounts
+  zu IT, Service, Strategie, Versorgung, Projekten, Kooperationen oder Transformation
+- 🧩 Dienstleister & Projekte: Wer hat gerade GKV-Projekte geliefert, Go-lives gefeiert,
+  Rollouts abgeschlossen, Zuschläge erhalten oder neue Kassenkunden gewonnen?
 - 💎 Ausschreibungen (TED): EU-schwellenwertüberschreitende Vergaben der Kassen,
   inkl. CPV-Code, Frist, Volumen (falls bekannt)
 - 📉 Personalabbau / Stellenstopps: Signal für Automatisierungsbedarf (weniger Leute, mehr Aufgaben)
@@ -97,7 +110,8 @@ WAS RELEVANT IST (nur darüber berichten):
   Streit im Verwaltungsrat – alles was hinter den Kulissen passiert
 
 WAS NICHT RELEVANT IST (ignorieren):
-- ePA-Pflichteinführung (betrifft alle gleich, keine News)
+- LinkedIn-Posts von Sachbearbeitern, Recruitern, Juniorrollen, Praktikanten oder reinem HR-Marketing
+- ePA-Pflichteinführung ohne konkreten IT-, Umsetzungs-, Anbieter- oder Kassenwinkel
 - Allgemeine Digitalisierungs-Absichtserklärungen ohne konkretes Projekt
 - Beitragssatzänderungen im normalen Rahmen (±0,1-0,3%)
 - Generische Pressemitteilungen ohne Nachrichtenwert
@@ -332,16 +346,24 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
     client = LinkdAPI(api_key)
     all_findings: list[str] = []
     post_count = 0
+    raw_post_count = 0
+    dropped_non_decision = 0
+    dropped_no_context = 0
+    dropped_no_topic = 0
 
     for kasse in kassen:
-        # Zwei Suchen pro Kasse: Erwähnung der Kasse + Posts VON Mitarbeitern
+        # LinkedIn-Queries: Kassen direkt, Dienstleister mit GKV/Krankenkassen-Kontext.
         raw_posts: list[dict] = []
-        for search_kwargs in [
-            # Suche 1: Alle Posts die die Kasse erwähnen (Keyword-Suche)
-            {"keyword": kasse["linkedin_search"], "date_posted": "past-month", "sort_by": "date_posted"},
-            # Suche 2: Posts von Mitarbeitern der Kasse (Author-Company-Filter)
-            {"author_company": kasse["linkedin_search"], "date_posted": "past-month", "sort_by": "date_posted"},
-        ]:
+        search_terms = kasse.get("linkedin_queries") or [kasse["linkedin_search"]]
+        search_requests = [
+            {"keyword": term, "date_posted": "past-month", "sort_by": "date_posted"}
+            for term in search_terms[:LINKEDIN_QUERY_LIMIT]
+        ]
+        search_requests.append(
+            {"author_company": kasse["linkedin_search"], "date_posted": "past-month", "sort_by": "date_posted"}
+        )
+
+        for search_kwargs in search_requests:
             search_type = list(search_kwargs.keys())[0]
             # Retry-Loop mit Exponential-Backoff bei 429
             for attempt in range(3):
@@ -362,11 +384,12 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                     else:
                         print(f"   ⚠️  LinkdAPI {kasse['short']} ({search_type}): {e}", file=sys.stderr)
                         break
-            time.sleep(3)  # 3s zwischen Requests (statt 0.3s)
+            time.sleep(1.2)
 
         # Duplikate entfernen (gleicher Post-Text)
         seen_texts: set[str] = set()
         findings: list[str] = []
+        raw_post_count += len(raw_posts)
 
         for post in raw_posts:
 
@@ -413,24 +436,36 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             reactions = int(likes) + int(comments)
 
             # Relevanz-Filter:
-            #   Person: nur C-Level / CDO / Leiter Geschäftsbereich / Head of
-            #   Inhalt: IT-Thema ODER 50+ Reaktionen (viraler High-Level-Post)
+            #   Person: nur Entscheider/Fuehrung, keine Sachbearbeiter
+            #   Dienstleister: nur mit GKV-Kontext
             ENTSCHEIDER = {
-                "vorstand", "ceo", "cio", "cto", "cdo", "coo", "cfo",
-                "geschäftsführer", "vorsitzender",
+                "vorstand", "vorständin", "vorstandsvorsitz", "ceo", "cio", "cto", "cdo",
+                "cco", "coo", "cfo", "chief", "geschäftsführer", "geschäftsführerin",
+                "vorsitzender", "vorsitzende", "hauptgeschäftsführer",
                 "geschäftsbereichsleiter", "leiter geschäftsbereich",
                 "bereichsleiter", "head of", "it-leiter", "digitalisierungsleiter",
+                "director", "direktor", "direktorin", "leitung digital", "leitung it",
+                "leitung versorgung", "leitung finanzen", "pressesprecher",
+            }
+            NICHT_ENTSCHEIDER = {
+                "sachbearbeiter", "kundenberater", "kundenservice", "recruiter",
+                "recruiting", "talent acquisition", "praktikant", "werkstudent",
+                "student", "azubi", "auszubild", "beraterin kunden", "berater kunden",
             }
             THEMEN_IT = {
                 "ki ", "künstliche intelligenz", "automatisierung", "digitalisierung",
                 "software", "cloud", "plattform", " api ", "daten", "system",
                 "it-", "cyber", "sicherheit", "technologie", "agil", "scrum",
                 "portal", "app", "online", "service", "prozess", "innovation",
-                "strategie", "transformation", "projekt", "kooperation",
+                "strategie", "transformation", "projekt", "kooperation", "go-live",
+                "golive", "rollout", "einführung", "implementierung", "migration",
+                "kunde", "kundin", "zuschlag", "auftrag", "livegang", "release",
             }
             text_lower = text.lower()
             actor_blob = f"{actor_name} {actor_title}".lower()
+            is_provider = kasse.get("type") == "provider"
             is_entscheider = any(k in actor_title for k in ENTSCHEIDER)
+            is_non_decision = any(k in actor_title for k in NICHT_ENTSCHEIDER)
             is_company_or_kasse = (
                 kasse["short"].lower() in actor_blob
                 or kasse["name"].lower() in actor_blob
@@ -439,10 +474,20 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                 or kasse["name"].lower() in text_lower
             )
             is_it_thema = any(k in text_lower for k in THEMEN_IT)
+            has_gkv_context = any(term in text_lower for term in GKV_CONTEXT_TERMS)
             is_viral = reactions >= 20
 
-            # Behalten: Entscheiderposts, kassennahe Digital-/Strategiethemen oder merklich resonante Posts.
-            if not (is_entscheider or (is_company_or_kasse and is_it_thema) or (is_company_or_kasse and is_viral)):
+            if is_non_decision:
+                dropped_non_decision += 1
+                continue
+            if is_provider and not has_gkv_context:
+                dropped_no_context += 1
+                continue
+            if not (is_entscheider or is_company_or_kasse):
+                dropped_non_decision += 1
+                continue
+            if not (is_it_thema or is_viral or (is_entscheider and has_gkv_context)):
+                dropped_no_topic += 1
                 continue
 
             post_date = datetime.fromtimestamp(ts / 1000).strftime("%d.%m.%Y") if ts else "?"
@@ -461,10 +506,20 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             post_count += len(findings[:5])
 
     if not all_findings:
+        print(
+            "   LinkedIn LinkdAPI: "
+            f"{raw_post_count} Rohposts, 0 behalten "
+            f"(Nicht-Entscheider: {dropped_non_decision}, ohne GKV-Kontext: {dropped_no_context}, ohne IT/Projekt-Thema: {dropped_no_topic})."
+        )
         return ""
 
     lines = [f"## 📣 LinkedIn-Posts ({post_count} Treffer via LinkdAPI)\n"]
     lines.extend(all_findings)
+    print(
+        "   LinkedIn LinkdAPI: "
+        f"{raw_post_count} Rohposts, {post_count} behalten "
+        f"(Nicht-Entscheider: {dropped_non_decision}, ohne GKV-Kontext: {dropped_no_context}, ohne IT/Projekt-Thema: {dropped_no_topic})."
+    )
     return "\n".join(lines)
 
 
@@ -769,7 +824,8 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
         "ki", "chatbot", "automatisierung", "software", "cloud", "dms", "portal",
         "cyber", "security", "ausschreibung", "vergabe", "fusion", "zusammenschluss",
         "verwaltungsrat", "bafin", "stellenabbau", "cio", "cdo", "digital",
-        "it-", "vorstand",
+        "it-", "vorstand", "go-live", "rollout", "implementierung", "migration",
+        "auftrag", "zuschlag", "projekt", "kooperation", "kunde",
     }
     exclude_terms = {
         "prävention", "ratgeber", "bonus", "gesundheitstag", "gewinnspiel",
@@ -790,12 +846,20 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
 
     for kasse in kassen:
         company = kasse["name"]
-        query = (
-            f'"{company}" '
-            '(KI OR Chatbot OR Automatisierung OR Software OR Cloud OR DMS OR Portal OR '
-            'Cybersecurity OR Ausschreibung OR Vergabe OR Fusion OR BaFin OR CIO OR CDO OR Stellenabbau) '
-            f'after:{after_date}'
-        )
+        if kasse.get("type") == "provider":
+            query = (
+                f'"{company}" '
+                '(GKV OR Krankenkasse OR Krankenkassen OR AOK OR BKK OR TK OR BARMER OR DAK) '
+                '(Projekt OR Go-live OR Rollout OR Implementierung OR Migration OR Zuschlag OR Auftrag OR Kunde) '
+                f'after:{after_date}'
+            )
+        else:
+            query = (
+                f'"{company}" '
+                '(KI OR Chatbot OR Automatisierung OR Software OR Cloud OR DMS OR Portal OR '
+                'Cybersecurity OR Ausschreibung OR Vergabe OR Fusion OR BaFin OR CIO OR CDO OR Stellenabbau) '
+                f'after:{after_date}'
+            )
         rss_url = (
             "https://news.google.com/rss/search?q="
             + urllib.parse.quote(query)
@@ -812,6 +876,8 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                 if link in seen_links:
                     continue
                 if any(term in title_lower for term in exclude_terms):
+                    continue
+                if kasse.get("type") == "provider" and not any(term in title_lower for term in GKV_CONTEXT_TERMS):
                     continue
                 if not any(term in title_lower for term in include_terms):
                     continue
@@ -956,22 +1022,28 @@ def score_research_items(client: openai.OpenAI, all_research: str) -> str:
         return ""
 
     scoring_prompt = f"""Bewerte Rohmeldungen für den KassenInfodienst.
-Zielgruppe: erfahrener B2B-IT-Vertriebler im GKV-Markt.
+Ziel: woechentlicher Branchenueberblick "GKV & IT" fuer einen erfahrenen B2B-IT-Vertriebler.
 
 Score 5 = unmittelbare Vertriebschance oder starkes strategisches Signal.
 Score 4 = klar relevant, konkret, belegt, mit IT-/Automatisierungs-/Organisationsbezug.
-Score 3 = interessant, aber schwach oder indirekt.
+Score 3 = wichtiges Branchen-/LinkedIn-/Dienstleistersignal, auch wenn noch kein harter Deal erkennbar ist.
 Score 1-2 = Rauschen.
 
 LinkedIn-Regel:
 - LinkedIn-Posts mit Kassen-/BITMARCK-/ITSC-Bezug ab Score 3 behalten, wenn sie
   Digital-, IT-, Service-, Organisations-, Personal-, Strategie- oder Projektbezug haben.
-- LinkedIn darf auch als schwaches Signal behalten werden, wenn es fuer Account-Timing,
-  Beziehungspflege oder Gespraechsanlass nuetzlich ist.
+- Entscheiderposts von CFO, CCO, CDO, CIO, COO, CEO, Vorstaenden, Geschaeftsfuehrern,
+  Bereichsleitern und offiziellen Kassen-/Dienstleister-Accounts sind ausdruecklich relevant.
+- Posts von Sachbearbeitern, Recruitern, Juniorrollen und reinem HR-Marketing sind Rauschen.
+
+Dienstleister-Regel:
+- Behalte Hinweise auf gelieferte GKV-Projekte, Go-lives, Rollouts, Implementierungen,
+  Zuschlaege, neue Kassenkunden, Kooperationen oder Betriebs-/Service-Erfolge.
 
 Streng ausschließen:
 - allgemeine Beitragssatzmeldungen
-- ePA-Pflicht oder gesetzliche Pflichtthemen ohne kassenspezifische Differenzierung
+- ePA-Pflicht oder gesetzliche Pflichtthemen nur ausschliessen, wenn kein IT-/Umsetzungs-/
+  Anbieter-/Kassenwinkel erkennbar ist
 - Prävention, Gesundheitsratgeber, Awards, Kampagnen, allgemeines Selbstlob
 - Pressemitteilungen ohne konkretes Projekt, Namen, Frist, Volumen oder neues Ereignis
 - Ausschreibungen unter 1 Mio EUR oder ohne IT-/Strategie-/BPO-Bezug
@@ -1046,7 +1118,7 @@ Rohmeldungen:
         else:
             kept.append(block)
 
-    print(f"   🧹 Relevanzfilter: {len(kept)} behalten, {dropped} verworfen.")
+    print(f"   🧹 Relevanzfilter: {len(kept) + len(fallback)} behalten, {dropped} verworfen.")
     if not kept and not fallback:
         return ""
     parts: list[str] = []
@@ -1095,32 +1167,41 @@ BEREITS LETZTE WOCHE BERICHTET (NICHT WIEDERHOLEN):
 """
 
     prompt = f"""Du bist Chefredakteur des GKV-Branchenbriefs "KassenInfodienst".
-Erstelle den fertigen Newsletterinhalt aus den Rohdaten unten.
+Erstelle einen woechentlichen Branchenueberblick "GKV & IT" aus den Rohdaten unten.
+Ziel: ca. 5 DIN-A4-Seiten bzw. 2500-3500 Woerter, wenn die Rohdaten genug Stoff liefern.
 
 ROHDATEN DIESER WOCHE:
-{all_research[:28000]}
+{all_research[:50000]}
 {last_week_block}
 SEKTIONEN (nur wenn Daten vorhanden, sonst weglassen):
 
-## 📣 LinkedIn-Radar  ← IMMER ZUERST, mind. 40% des Newsletters
-Jeden Post ausführlich: Autor + Titel/Position, Kernaussage, Datum, Engagement (Likes/Kommentare),
-dfg-Einordnung: Was steckt dahinter? Warum jetzt? Was bedeutet das für den Vertrieb?
+## 📣 LinkedIn-Radar: Was Entscheider senden  ← IMMER ZUERST, mind. 40% des Newsletters
+Nur relevante Stimmen von Vorstaenden, CFO/CCO/CDO/CIO/COO/CEO, Geschaeftsfuehrern,
+Bereichsleitern und offiziellen Kassen-/Dienstleister-Accounts.
+Je Post: Autor + Rolle, Organisation, Kernaussage, Datum, Engagement, Einordnung:
+Was steckt dahinter? Warum jetzt? Was bedeutet das fuer GKV-IT-Vertrieb?
 
-## 🔥 Wer kommt, wer geht
-Nur Personalwechsel die IN diesem Recherchezeitraum bekannt wurden.
+## 🧩 Dienstleister & gelieferte GKV-Projekte
+Welche IT-/BPO-/Beratungsdienstleister haben GKV-Projekte geliefert, Rollouts abgeschlossen,
+Go-lives gefeiert, Zuschlaege bekommen oder neue Kassenkunden sichtbar gemacht?
+
+## 🔥 Kassen & Köpfe
+Personalwechsel, neue Verantwortlichkeiten oder sichtbare Stimmen aus Vorstand, Digital, IT,
+Finanzen, Versorgung oder Service.
 
 ## 💎 Ausschreibungen, die sich lohnen
 Nur TED-Vergaben >1 Mio € aus den Rohdaten. Mit Frist und Volumen.
 
-## 🤖 Weniger Köpfe, mehr Maschinen
-Stellenabbau + KI/Automatisierungsprojekte – zusammen denken.
+## 🤖 GKV-IT, Automatisierung & Plattformen
+KI, Automatisierung, ePA/TI-Umsetzung mit konkretem IT-Winkel, Portale, Apps, Daten,
+Cloud, Cybersecurity, Servicecenter, Prozessautomatisierung.
 
-## 💬 Flurfunk
-Fusionsgerüchte, Verwaltungsratszwist, BaFin-Beobachtungen, Beitragssatz-Moves.
-Wenn Gerücht: explizit kennzeichnen. Lieber einen pointierten Flurfunk als keinen.
+## 🏛️ Regulierung, Druck & Marktbewegungen
+Politik, Aufsicht, Finanzierung, Verwaltungsrat, Fusionen, Stellenabbau oder Themen,
+die IT-Budgets und Prioritaeten der Kassen beeinflussen.
 
 ## 🎯 Was jetzt zu tun ist
-3–5 konkrete, terminierte Action Items. Direkt, knapp, mit Deadline.
+5–8 konkrete Action Items fuer Account Management, Partneransprache und Timing.
 
 REGELN:
 - KEINEN Titel ausgeben – Header kommt automatisch
@@ -1130,15 +1211,17 @@ REGELN:
 - Keine Vorstandsänderungen vor dem Recherchezeitraum
 - Keine Wiederholungen aus letzter Woche (außer bei Entwicklung)
 - Tonalität: DFG-Branchenbrief – investigativ, meinungsstark, personalisiert, mit Namen
-- Jede Kasse mit verwertbaren Daten MUSS erscheinen – auch wenn nur 1-2 Sätze
-- Max. 2000 Wörter – lieber vollständig als kurz
+- Kein LinkedIn von Sachbearbeitern, Recruitern, Praktikanten oder reinem HR-Marketing
+- LinkedIn-Rohsignale nicht wegwerfen: kompakt clustern, wenn sie als Gespraechsanlass taugen
+- Dienstleister-Projektsignale sind wichtig, auch wenn sie nicht direkt von einer Kasse kommen
+- Zielumfang 2500-3500 Woerter, aber nicht kuenstlich aufblasen
 - Abschnitte ohne Daten: WEGLASSEN (kein "nicht verfügbar")
 
 Schreibe auf Deutsch."""
 
     completion = client.chat.completions.create(
         model=NEWSLETTER_MODEL,
-        max_completion_tokens=4000,
+        max_completion_tokens=7000,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
