@@ -395,7 +395,11 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
 
         # Reihenfolge beibehalten, Duplikate entfernen.
         search_terms = list(dict.fromkeys(search_terms))
-        query_limit = len(search_terms) if kasse.get("type") == "market" else LINKEDIN_QUERY_LIMIT
+        query_limit = (
+            len(search_terms)
+            if kasse.get("type") == "market"
+            else int(kasse.get("linkedin_query_limit") or LINKEDIN_QUERY_LIMIT)
+        )
         search_requests = [
             {"keyword": term, "date_posted": "past-month", "sort_by": "date_posted"}
             for term in search_terms[:query_limit]
@@ -508,6 +512,14 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                 "versichertenservice", "digital health", "data", "analytics",
                 "versorgung", "versorgungsmanagement", "selektivvertrag",
             }
+            THEMEN_BRANCHE = {
+                "gkv", "gesundheitspolitik", "krankenversicherung", "krankenkasse",
+                "versorgung", "pflege", "finanzierung", "finanzen", "reform",
+                "beitrag", "beitragssatz", "zusatzbeitrag", "bundestag",
+                "ministerium", "verwaltung", "verwaltungsrat", "vorstand",
+                "strategie", "markt", "kunden", "versicherte", "service",
+                "qualitaet", "qualität", "innovation",
+            }
             OFFICIAL_ACTORS = {
                 "krankenkasse", "aok", "barmer", "dak", "techniker krankenkasse",
                 "tk", "ikk", "bkk", "kkh", "sbk", "hkk", "bitmarck", "itsc",
@@ -534,8 +546,13 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                 is_provider
                 and any(provider in f"{kasse['short']} {kasse['name']}".lower() for provider in DEDICATED_GKV_PROVIDERS)
             )
-            has_gkv_context = any(term in text_lower for term in GKV_CONTEXT_TERMS) or is_dedicated_gkv_provider
+            has_gkv_context = (
+                any(term in text_lower for term in GKV_CONTEXT_TERMS)
+                or is_dedicated_gkv_provider
+                or (not is_provider and not is_market)
+            )
             is_viral = reactions >= 20
+            is_branchenthema = any(k in text_lower for k in THEMEN_BRANCHE)
 
             if is_non_decision:
                 dropped_non_decision += 1
@@ -546,7 +563,12 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             if not (is_entscheider or is_company_or_kasse):
                 dropped_non_decision += 1
                 continue
-            if not (is_it_thema or is_viral or (is_entscheider and has_gkv_context)):
+            if not (
+                is_it_thema
+                or is_viral
+                or (is_entscheider and has_gkv_context)
+                or (is_company_or_kasse and has_gkv_context and is_branchenthema)
+            ):
                 dropped_no_topic += 1
                 continue
 
@@ -1251,6 +1273,28 @@ Rohmeldungen:
     return "\n\n".join(parts)
 
 
+def build_observation_radar(all_research: str) -> str:
+    """Fail-open: Rohquellen bleiben im Wochenbericht, auch wenn das Scoring zu streng war."""
+    items = _extract_candidate_items(all_research)
+    if not items:
+        return "## Beobachtungsradar aus Rohquellen\n\n" + all_research[:30000]
+
+    blocks: list[str] = []
+    for item in items[:MAX_SCORING_ITEMS]:
+        section = item.get("section") or "Rohquelle"
+        kasse = item.get("kasse") or "Markt"
+        text = item.get("text", "").strip()
+        if not text:
+            continue
+        blocks.append(
+            f"### {section} | {kasse} | Beobachtung\n"
+            f"{text}\n"
+            "Vertriebsrelevanz: Rohsignal aus Quellenlage; redaktionell einordnen, nicht als harte Abschlusschance behaupten."
+        )
+
+    return "## Beobachtungsradar aus Rohquellen\n\n" + "\n\n".join(blocks)
+
+
 
 # ---------------------------------------------------------------------------
 # Executive Summary
@@ -1909,12 +1953,18 @@ def main() -> None:
     # Newsletter zusammensetzen – TED-Daten voranstellen
     if ted_section:
         all_research_parts.insert(0, ted_section)
-    all_research = "\n\n".join(all_research_parts)
+    raw_research = "\n\n".join(all_research_parts)
+    all_research = raw_research
     raw_highlights_count = len(all_research_parts)
 
-    if all_research.strip():
+    if raw_research.strip():
         print("🧹 Bewerte Relevanz und filtere Rauschen ...")
-        all_research = score_research_items(client, all_research)
+        filtered_research = score_research_items(client, raw_research)
+        if filtered_research.strip():
+            all_research = filtered_research
+        else:
+            print("   ⚠️  Filter ergab 0 Treffer – nutze Rohquellen als Beobachtungsradar statt Nullmeldung.")
+            all_research = build_observation_radar(raw_research)
 
     highlights_count = len(_extract_candidate_items(all_research)) if all_research.strip() else 0
     print(f"\n📊 {highlights_count} kuratierte Meldung(en) aus {raw_highlights_count} Rohquellen.")

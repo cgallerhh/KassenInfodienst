@@ -25,6 +25,16 @@ KASSEN = [
         "domain": "dak.de",
         "url": "https://www.dak.de",
         "linkedin_search": "DAK-Gesundheit",
+        "linkedin_query_limit": 7,
+        "linkedin_queries": [
+            "DAK-Gesundheit",
+            "DAK Vorstand",
+            "Andreas Storm DAK",
+            "Thomas Bodmer DAK",
+            "Dr. Ute Wiedemann DAK",
+            "DAK Digitalisierung",
+            "DAK IT",
+        ],
         "linkedin_url": "https://www.linkedin.com/company/dak-gesundheit/",
     },
     {
