@@ -56,6 +56,10 @@ jobs:
           LINKEDIN_LI_AT: ${{ secrets.LINKEDIN_LI_AT }}
           LINKEDIN_JSESSIONID: ${{ secrets.LINKEDIN_JSESSIONID }}
           LINKDAPI_KEY: ${{ secrets.LINKDAPI_KEY }}
+          ENABLE_LINKEDIN_VOYAGER: ${{ secrets.ENABLE_LINKEDIN_VOYAGER }}
+          NEWS_RSS_MARKET_LIMIT: ${{ vars.NEWS_RSS_MARKET_LIMIT || '' }}
+          LINKEDIN_RADAR_LIMIT: ${{ vars.LINKEDIN_RADAR_LIMIT || '' }}
+          LINKEDIN_POSTS_PER_ACCOUNT: ${{ vars.LINKEDIN_POSTS_PER_ACCOUNT || '' }}
           INPUT_KASSEN: ${{ github.event.inputs.kassen || '' }}
           INPUT_TAGE: ${{ github.event.inputs.tage || '7' }}
         run: |

@@ -34,6 +34,19 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
+
+def env_int(name: str, default: int) -> int:
+    """Liest optionale Zahlen aus GitHub-Env/Vars robust, auch wenn sie leer sind."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"   ⚠️  {name}={raw!r} ist keine Zahl, nutze {default}.", file=sys.stderr)
+        return default
+
+
 # Lade .env-Datei falls vorhanden (pip install python-dotenv)
 try:
     from dotenv import load_dotenv
@@ -53,9 +66,11 @@ REPORTS_DIR = Path("reports")
 MIN_TED_VALUE_EUR = 1_000_000
 MIN_RELEVANCE_SCORE = 4
 MAX_SCORING_ITEMS = 180
-LINKEDIN_QUERY_LIMIT = int(os.environ.get("LINKEDIN_QUERY_LIMIT", "2"))
-LINKEDIN_RADAR_LIMIT = int(os.environ.get("LINKEDIN_RADAR_LIMIT", "30"))
-LINKEDIN_POSTS_PER_ACCOUNT = int(os.environ.get("LINKEDIN_POSTS_PER_ACCOUNT", "8"))
+LINKEDIN_QUERY_LIMIT = env_int("LINKEDIN_QUERY_LIMIT", 2)
+LINKEDIN_RADAR_LIMIT = env_int("LINKEDIN_RADAR_LIMIT", 30)
+LINKEDIN_POSTS_PER_ACCOUNT = env_int("LINKEDIN_POSTS_PER_ACCOUNT", 8)
+NEWS_RSS_MARKET_LIMIT = env_int("NEWS_RSS_MARKET_LIMIT", 6)
+ENABLE_LINKEDIN_VOYAGER = os.environ.get("ENABLE_LINKEDIN_VOYAGER", "").lower() in {"1", "true", "yes"}
 
 RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5-nano"
 SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5-nano"
@@ -76,6 +91,17 @@ LINKEDIN_MARKET_QUERIES = [
     "GKV Projekt Go-live",
     "Krankenkasse KI Automatisierung",
     "Krankenkasse Servicecenter Digitalisierung",
+]
+
+NEWS_RSS_MARKET_QUERIES = [
+    '"GKV" "IT" Digitalisierung',
+    '"Krankenkasse" Software Projekt',
+    '"gesetzliche Krankenversicherung" KI Automatisierung',
+    '"Krankenkasse" Servicecenter Digitalisierung',
+    '"Krankenkasse" Cybersecurity',
+    '"GKV" "Go-live"',
+    '"GKV" Rollout Implementierung',
+    '"Krankenkasse" Ausschreibung IT',
 ]
 
 DEDICATED_GKV_PROVIDERS = {
@@ -884,6 +910,41 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
     all_findings: list[str] = []
     seen_links: set[str] = set()
 
+    market_findings: list[str] = []
+    for query in NEWS_RSS_MARKET_QUERIES:
+        rss_url = (
+            "https://news.google.com/rss/search?q="
+            + urllib.parse.quote(f"{query} after:{after_date}")
+            + "&hl=de&gl=DE&ceid=DE:de"
+        )
+        try:
+            resp = req.get(rss_url, headers=HEADERS, timeout=10)
+            if resp.status_code != 200:
+                continue
+            for title, link in _parse_rss_xml(resp.text, cutoff)[:6]:
+                title_lower = title.lower()
+                if link in seen_links:
+                    continue
+                if any(term in title_lower for term in exclude_terms):
+                    continue
+                if not any(term in title_lower for term in include_terms):
+                    continue
+                if not any(term in title_lower for term in GKV_CONTEXT_TERMS):
+                    continue
+                seen_links.add(link)
+                market_findings.append(f"  - {title} → {link}")
+                if len(market_findings) >= NEWS_RSS_MARKET_LIMIT:
+                    break
+        except Exception as e:
+            print(f"   ⚠️  News-RSS Marktquery: {e}", file=sys.stderr)
+        if len(market_findings) >= NEWS_RSS_MARKET_LIMIT:
+            break
+
+    if market_findings:
+        all_findings.append("**GKV & IT Markt** (News/RSS):")
+        all_findings.extend(market_findings)
+        all_findings.append("")
+
     for kasse in kassen:
         company = kasse["name"]
         if kasse.get("type") == "provider":
@@ -1133,9 +1194,30 @@ Rohmeldungen:
     dropped = 0
     for item in items:
         decision = decisions.get(item["id"], {})
-        score = int(decision.get("score") or 0)
         category = str(decision.get("category") or item["section"])
-        is_linkedin = "linkedin" in f"{item.get('section', '')} {category} {item.get('text', '')}".lower()
+        text_blob = f"{item.get('section', '')} {category} {item.get('text', '')}".lower()
+        is_linkedin = "linkedin" in text_blob
+        is_rss = "rss" in text_blob
+        is_gkv_it_signal = (
+            any(term in text_blob for term in GKV_CONTEXT_TERMS)
+            and any(term in text_blob for term in {
+                "it", "digital", "software", "cloud", "ki", "automatisierung",
+                "cyber", "security", "portal", "servicecenter", "projekt",
+                "go-live", "rollout", "implementierung", "migration",
+                "ausschreibung", "vergabe", "zuschlag", "auftrag",
+            })
+        )
+        has_decision = item["id"] in decisions
+        score = int(decision.get("score") or 0)
+        if (not has_decision or score == 0) and is_linkedin:
+            score = 3
+            category = "LinkedIn"
+            decision = {**decision, "keep": True, "sales_relevance": "LinkedIn-Signal fuer den Wochenradar; redaktionell einordnen statt wegwerfen."}
+        elif (not has_decision or score == 0) and is_rss and is_gkv_it_signal:
+            score = 4
+            category = "News/RSS"
+            decision = {**decision, "keep": True, "sales_relevance": "RSS-Signal mit erkennbarem GKV-IT-Bezug; im Wochenbericht pruefen und knapp einordnen."}
+
         keep_threshold = 2 if is_linkedin else MIN_RELEVANCE_SCORE
         keep = (bool(decision.get("keep")) or is_linkedin) and score >= keep_threshold
         if not keep:
@@ -1803,7 +1885,7 @@ def main() -> None:
             print(f"   ✅ {post_count} LinkedIn-Posts via LinkdAPI.")
         else:
             print("   ℹ️  Keine LinkedIn-Posts via LinkdAPI – versuche Fallback.")
-    if not linkedin_data and os.environ.get("LINKEDIN_LI_AT"):
+    if not linkedin_data and os.environ.get("LINKEDIN_LI_AT") and ENABLE_LINKEDIN_VOYAGER:
         print("🔗 LinkedIn Voyager-API (li_at-Session, inkl. BITMARCK + ITSC) ...")
         linkedin_data = scrape_linkedin_voyager(linkedin_targets, args.tage)
         if linkedin_data:
@@ -1811,6 +1893,8 @@ def main() -> None:
             print(f"   ✅ {post_count} LinkedIn-Posts via Voyager-API.")
         else:
             print("   ℹ️  Keine LinkedIn-Posts via Voyager – versuche RSS-Fallback.")
+    elif not linkedin_data and os.environ.get("LINKEDIN_LI_AT"):
+        print("🔗 LinkedIn Voyager-API übersprungen (ENABLE_LINKEDIN_VOYAGER nicht gesetzt; vermeidet 429/Redirect-Loops).")
     if not linkedin_data:
         print("🔗 LinkedIn RSS-Fallback ...")
         linkedin_data = scrape_linkedin_rss(linkedin_targets, args.tage)
