@@ -52,8 +52,10 @@ LAST_WEEK_FILE = Path("last_week.md")   # Gedächtnis: was letzte Woche berichte
 REPORTS_DIR = Path("reports")
 MIN_TED_VALUE_EUR = 1_000_000
 MIN_RELEVANCE_SCORE = 4
-MAX_SCORING_ITEMS = 120
+MAX_SCORING_ITEMS = 180
 LINKEDIN_QUERY_LIMIT = int(os.environ.get("LINKEDIN_QUERY_LIMIT", "2"))
+LINKEDIN_RADAR_LIMIT = int(os.environ.get("LINKEDIN_RADAR_LIMIT", "30"))
+LINKEDIN_POSTS_PER_ACCOUNT = int(os.environ.get("LINKEDIN_POSTS_PER_ACCOUNT", "8"))
 
 RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5-nano"
 SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5-nano"
@@ -65,6 +67,19 @@ GKV_CONTEXT_TERMS = {
     "versicherte", "versicherten", "versorgung", "leistungserbringer",
     "tk", "techniker krankenkasse", "barmer", "dak", "aok", "ikk", "bkk",
     "kkh", "sbk", "hkk", "bitmarck", "itsc",
+}
+
+LINKEDIN_MARKET_QUERIES = [
+    "GKV IT",
+    "Krankenkasse Digitalisierung",
+    "gesetzliche Krankenversicherung CIO",
+    "GKV Projekt Go-live",
+    "Krankenkasse KI Automatisierung",
+    "Krankenkasse Servicecenter Digitalisierung",
+]
+
+DEDICATED_GKV_PROVIDERS = {
+    "bitmarck", "itsc", "aok systems", "gkv informatik", "gevko", "davaso", "spectrumk",
 }
 
 
@@ -118,50 +133,24 @@ WAS NICHT RELEVANT IST (ignorieren):
 - Ausschreibungen ohne erkennbaren IT-/Strategie-Bezug (z. B. Bürobedarf, Reinigung)
 
 OUTPUT-FORMAT:
-Schreibe KEINEN Report pro Kasse mit leeren Abschnitten. Stattdessen:
+Schreibe keinen Report pro Kasse mit leeren Abschnitten. Das Ziel ist ein
+durchgaengiger Wochenbericht mit eingebetteten Quellenlinks, aehnlich einem
+redaktionellen Newsletter:
 
-## 🔥 Wer kommt, wer geht
-[Personalwechsel im dfg-Stil – pointiert, mit Einordnung.
-Beispiel: "**Karen Walkenhorst** verlässt den TK-Vorstand zum 30.06. – ein Posten,
-der IT-Strategie und Versorgung vereint. Wer hier nachfolgt, setzt Signale für die
-größte Kasse der Republik. In den Schaltzentralen der Branche wird spekuliert."]
-
-## 📣 LinkedIn-Radar
-[Nur Posts mit Substanz und Reichweite. dfg-typisch einordnen: Was steckt dahinter?
-Beispiel: "**Thomas Bodmer** (SBK) feiert auf LinkedIn den Go-Live des neuen
-Versichertenportals – 340 Reaktionen. Zwischen den Zeilen: Die SBK positioniert
-sich als Digital-Vorreiter unter den BKKen. Der Zeitpunkt ist kein Zufall:
-Die nächste Vergabewelle steht bevor."]
-
-## 💎 Ausschreibungen, die sich lohnen
-[Nur >1 Mio €. Knapp, mit Countdown-Dringlichkeit.
-Beispiel: "**DAK** sucht neuen DMS-Anbieter – und die Uhr tickt. TED-Nr. 2026/S xxx.
-Geschätzt 2,4 Mio € über 4 Jahre. Frist: 15.04.2026.
-Wer im DMS-Bereich unterwegs ist: Jetzt bewegen, nicht nächste Woche."]
-
-## 🤖 Weniger Köpfe, mehr Maschinen
-[Personalabbau + Automatisierung zusammen denken – das ist der Trend.
-Beispiel: "**BARMER** streicht 700 Stellen bis 2027. Gleichzeitig fließen Millionen
-in KI-gestützte Antragsbearbeitung. Die Gleichung ist simpel: Weniger Personal,
-gleiche Aufgaben – wer Automatisierung liefert, steht vor offenen Türen."]
-
-## 💬 Flurfunk
-[Das Salz im Newsletter. Provokant, aber fair. Immer kennzeichnen was Gerücht ist.
-Beispiel: "In der Gerüchteküche brodelt es: IKK classic und IKK Südwest sondieren
-erneut eine Fusion. Offiziell dementiert – aber: Zwei Vorstände beim selben
-Abendessen in Berlin gesichtet. Zufall? Die dfg-Redaktion bleibt dran."]
-
-## 🎯 Was jetzt zu tun ist
-[3–5 konkrete, terminierte Handlungsempfehlungen. Direkt, knapp, mit Deadline.
-Beispiel:
-"→ DAK-DMS-Ausschreibung: Angebot bis 10.04. – wer zu spät kommt, kennt den Rest."
-"→ Neuer TK-CIO ab Juli: Antrittsbesuch anfragen. Erste 100 Tage = offenes Fenster."]
+1. "In dieser Ausgabe" - 5 bis 8 kurze, harte Orientierungspunkte.
+2. "Weekly Field Notes" - kompakte Signal-Liste, gruppiert nach LinkedIn,
+   Dienstleister, Kassen/Koepfe, Ausschreibungen und Regulierung.
+3. "Der Wochenbericht" - laufender Branchenbericht in Abschnitten, mit
+   Einordnung, Namen, Quellenlinks und Vertriebsimplikationen.
+4. "Was jetzt zu tun ist" - 5 bis 8 konkrete Gespraechsanlaesse und naechste Schritte.
 
 WICHTIG:
-- Abschnitte WEGLASSEN wenn nichts Relevantes gefunden. Lieber 2 gute Abschnitte als 6 leere.
-- Kein "Keine Informationen gefunden" – einfach weglassen.
-- Qualität > Quantität. Lieber eine pointierte Meldung als zehn generische.
-- Immer Quellen/Links nennen wo verfügbar.
+- Zielumfang ca. 3000 Woerter, wenn genug Rohdaten vorhanden sind.
+- LinkedIn ist die Hauptquelle: Stimmen von Entscheidern und offiziellen Accounts
+  nicht nur als Anhang nennen, sondern in die Story einbauen.
+- Abschnitte WEGLASSEN wenn nichts Relevantes gefunden.
+- Kein "Keine Informationen gefunden" - einfach weglassen.
+- Immer Quellen/Links nennen wo verfuegbar, am besten direkt im Satz.
 - Schreibe auf Deutsch."""
 
 
@@ -351,17 +340,44 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
     dropped_no_context = 0
     dropped_no_topic = 0
 
-    for kasse in kassen:
+    market_target = {
+        "name": "GKV & IT Markt",
+        "short": "GKV-Markt",
+        "type": "market",
+        "linkedin_search": "GKV IT",
+        "linkedin_queries": LINKEDIN_MARKET_QUERIES,
+    }
+
+    for kasse in [market_target] + kassen:
         # LinkedIn-Queries: Kassen direkt, Dienstleister mit GKV/Krankenkassen-Kontext.
         raw_posts: list[dict] = []
-        search_terms = kasse.get("linkedin_queries") or [kasse["linkedin_search"]]
+        if kasse.get("type") == "provider":
+            search_terms = kasse.get("linkedin_queries") or [
+                f"{kasse['linkedin_search']} GKV",
+                f"{kasse['linkedin_search']} Krankenkasse",
+            ]
+        elif kasse.get("type") == "market":
+            search_terms = kasse.get("linkedin_queries") or LINKEDIN_MARKET_QUERIES
+        else:
+            company = kasse["linkedin_search"]
+            search_terms = kasse.get("linkedin_queries") or [
+                company,
+                f"{company} Vorstand CIO CDO",
+                f"{company} IT Digitalisierung Service",
+                f"{kasse['short']} Krankenkasse Projekt",
+            ]
+
+        # Reihenfolge beibehalten, Duplikate entfernen.
+        search_terms = list(dict.fromkeys(search_terms))
+        query_limit = len(search_terms) if kasse.get("type") == "market" else LINKEDIN_QUERY_LIMIT
         search_requests = [
             {"keyword": term, "date_posted": "past-month", "sort_by": "date_posted"}
-            for term in search_terms[:LINKEDIN_QUERY_LIMIT]
+            for term in search_terms[:query_limit]
         ]
-        search_requests.append(
-            {"author_company": kasse["linkedin_search"], "date_posted": "past-month", "sort_by": "date_posted"}
-        )
+        if kasse.get("type") != "market":
+            search_requests.append(
+                {"author_company": kasse["linkedin_search"], "date_posted": "past-month", "sort_by": "date_posted"}
+            )
 
         for search_kwargs in search_requests:
             search_type = list(search_kwargs.keys())[0]
@@ -456,25 +472,43 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                 "ki ", "künstliche intelligenz", "automatisierung", "digitalisierung",
                 "software", "cloud", "plattform", " api ", "daten", "system",
                 "it-", "cyber", "sicherheit", "technologie", "agil", "scrum",
-                "portal", "app", "online", "service", "prozess", "innovation",
+                "portal", "app", "online", "service", "kundenservice",
+                "servicecenter", "kontaktcenter", "omnichannel", "prozess",
+                "prozessoptimierung", "innovation",
                 "strategie", "transformation", "projekt", "kooperation", "go-live",
                 "golive", "rollout", "einführung", "implementierung", "migration",
                 "kunde", "kundin", "zuschlag", "auftrag", "livegang", "release",
+                "telematik", "gematik", "ti ", "e-rezept", "diga",
+                "versichertenservice", "digital health", "data", "analytics",
+                "versorgung", "versorgungsmanagement", "selektivvertrag",
+            }
+            OFFICIAL_ACTORS = {
+                "krankenkasse", "aok", "barmer", "dak", "techniker krankenkasse",
+                "tk", "ikk", "bkk", "kkh", "sbk", "hkk", "bitmarck", "itsc",
+                "aok systems", "gkv informatik", "gevko", "davaso", "spectrumk",
+                "adesso", "msg", "materna", "arvato", "sopra steria",
             }
             text_lower = text.lower()
             actor_blob = f"{actor_name} {actor_title}".lower()
             is_provider = kasse.get("type") == "provider"
+            is_market = kasse.get("type") == "market"
             is_entscheider = any(k in actor_title for k in ENTSCHEIDER)
             is_non_decision = any(k in actor_title for k in NICHT_ENTSCHEIDER)
+            is_official_market_actor = is_market and any(k in actor_blob for k in OFFICIAL_ACTORS)
             is_company_or_kasse = (
                 kasse["short"].lower() in actor_blob
                 or kasse["name"].lower() in actor_blob
                 or kasse["linkedin_search"].lower() in actor_blob
                 or kasse["short"].lower() in text_lower
                 or kasse["name"].lower() in text_lower
+                or is_official_market_actor
             )
             is_it_thema = any(k in text_lower for k in THEMEN_IT)
-            has_gkv_context = any(term in text_lower for term in GKV_CONTEXT_TERMS)
+            is_dedicated_gkv_provider = (
+                is_provider
+                and any(provider in f"{kasse['short']} {kasse['name']}".lower() for provider in DEDICATED_GKV_PROVIDERS)
+            )
+            has_gkv_context = any(term in text_lower for term in GKV_CONTEXT_TERMS) or is_dedicated_gkv_provider
             is_viral = reactions >= 20
 
             if is_non_decision:
@@ -494,16 +528,22 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             line = f"  - [{post_date}] **{actor_name}**"
             if actor_title:
                 line += f" ({actor_title[:60]})"
-            line += f": {text[:300].strip()}"
+            line += f": {text[:450].strip()}"
             if reactions:
                 line += f" _(👍 {likes} · 💬 {comments})_"
+            post_url = (
+                post.get("url") or post.get("postUrl") or post.get("post_url")
+                or post.get("activityUrl") or post.get("permalink")
+            )
+            if post_url:
+                line += f" → {post_url}"
             findings.append(line)
 
         if findings:
             all_findings.append(f"**{kasse['short']}** (LinkedIn):")
-            all_findings.extend(findings[:5])
+            all_findings.extend(findings[:LINKEDIN_POSTS_PER_ACCOUNT])
             all_findings.append("")
-            post_count += len(findings[:5])
+            post_count += len(findings[:LINKEDIN_POSTS_PER_ACCOUNT])
 
     if not all_findings:
         print(
@@ -1096,7 +1136,7 @@ Rohmeldungen:
         score = int(decision.get("score") or 0)
         category = str(decision.get("category") or item["section"])
         is_linkedin = "linkedin" in f"{item.get('section', '')} {category} {item.get('text', '')}".lower()
-        keep_threshold = 3 if is_linkedin else MIN_RELEVANCE_SCORE
+        keep_threshold = 2 if is_linkedin else MIN_RELEVANCE_SCORE
         keep = (bool(decision.get("keep")) or is_linkedin) and score >= keep_threshold
         if not keep:
             dropped += 1
@@ -1113,7 +1153,7 @@ Rohmeldungen:
             + item["text"]
             + (f"\nVertriebsrelevanz: {relevance}" if relevance else "")
         )
-        if is_linkedin and score == 3:
+        if is_linkedin and score <= 3:
             fallback.append(block)
         else:
             kept.append(block)
@@ -1125,7 +1165,7 @@ Rohmeldungen:
     if kept:
         parts.append("## Kuratierte Rohmeldungen\n\n" + "\n\n".join(kept))
     if fallback:
-        parts.append("## LinkedIn-Radar Rohsignale\n\n" + "\n\n".join(fallback[:8]))
+        parts.append("## LinkedIn-Radar Rohsignale\n\n" + "\n\n".join(fallback[:LINKEDIN_RADAR_LIMIT]))
     return "\n\n".join(parts)
 
 
@@ -1168,53 +1208,50 @@ BEREITS LETZTE WOCHE BERICHTET (NICHT WIEDERHOLEN):
 
     prompt = f"""Du bist Chefredakteur des GKV-Branchenbriefs "KassenInfodienst".
 Erstelle einen woechentlichen Branchenueberblick "GKV & IT" aus den Rohdaten unten.
-Ziel: ca. 5 DIN-A4-Seiten bzw. 2500-3500 Woerter, wenn die Rohdaten genug Stoff liefern.
+Ziel: ca. 3000 Woerter bzw. etwa 5 DIN-A4-Seiten, wenn die Rohdaten genug Stoff liefern.
+Der Leser moechte LinkedIn nicht haendisch durchklicken. Verdichte deshalb viele
+LinkedIn-Signale zu einem lesbaren, laufenden Wochenbericht mit eingebetteten Quellenlinks.
 
 ROHDATEN DIESER WOCHE:
 {all_research[:50000]}
 {last_week_block}
-SEKTIONEN (nur wenn Daten vorhanden, sonst weglassen):
+FORMAT:
 
-## 📣 LinkedIn-Radar: Was Entscheider senden  ← IMMER ZUERST, mind. 40% des Newsletters
-Nur relevante Stimmen von Vorstaenden, CFO/CCO/CDO/CIO/COO/CEO, Geschaeftsfuehrern,
-Bereichsleitern und offiziellen Kassen-/Dienstleister-Accounts.
-Je Post: Autor + Rolle, Organisation, Kernaussage, Datum, Engagement, Einordnung:
-Was steckt dahinter? Warum jetzt? Was bedeutet das fuer GKV-IT-Vertrieb?
+## In dieser Ausgabe
+5 bis 8 kurze Bulletpoints: Was muss man wissen, wenn man nur 60 Sekunden hat?
 
-## 🧩 Dienstleister & gelieferte GKV-Projekte
-Welche IT-/BPO-/Beratungsdienstleister haben GKV-Projekte geliefert, Rollouts abgeschlossen,
-Go-lives gefeiert, Zuschlaege bekommen oder neue Kassenkunden sichtbar gemacht?
+## Weekly Field Notes
+Kompakte, quellennahe Signal-Liste im Stil eines Branchen-Newsletters:
+- LinkedIn: Entscheiderstimmen und offizielle Accounts
+- Dienstleister: Go-lives, Rollouts, neue Kunden, gelieferte Projekte
+- Kassen & Koepfe: Personal, Strategie, Organisation
+- IT & Betrieb: KI, Automatisierung, Plattformen, Servicecenter, Cybersecurity
+- Vergaben & Druck: TED, Regulierung, Finanzierung, operative Engpaesse
 
-## 🔥 Kassen & Köpfe
-Personalwechsel, neue Verantwortlichkeiten oder sichtbare Stimmen aus Vorstand, Digital, IT,
-Finanzen, Versorgung oder Service.
+## Der Wochenbericht
+Ein durchgaengiger redaktioneller Bericht mit 5 bis 8 Zwischenueberschriften.
+Keine duenne Stichpunkt-Sammlung. Schreibe erklaerende Absaetze, verbinde Signale,
+nenne Namen und Organisationen, und setze Links direkt in den Satz, wenn sie in den
+Rohdaten stehen. LinkedIn ist hier die Hauptquelle: mindestens die Haelfte des
+Berichts soll auf LinkedIn-Signalen, Entscheiderstimmen und offiziellen Accounts beruhen.
 
-## 💎 Ausschreibungen, die sich lohnen
-Nur TED-Vergaben >1 Mio € aus den Rohdaten. Mit Frist und Volumen.
-
-## 🤖 GKV-IT, Automatisierung & Plattformen
-KI, Automatisierung, ePA/TI-Umsetzung mit konkretem IT-Winkel, Portale, Apps, Daten,
-Cloud, Cybersecurity, Servicecenter, Prozessautomatisierung.
-
-## 🏛️ Regulierung, Druck & Marktbewegungen
-Politik, Aufsicht, Finanzierung, Verwaltungsrat, Fusionen, Stellenabbau oder Themen,
-die IT-Budgets und Prioritaeten der Kassen beeinflussen.
-
-## 🎯 Was jetzt zu tun ist
-5–8 konkrete Action Items fuer Account Management, Partneransprache und Timing.
+## Was jetzt zu tun ist
+5 bis 8 konkrete Gespraechsanlaesse fuer Account Management, Partneransprache,
+Terminierung, Hypothesen und Monitoring.
 
 REGELN:
 - KEINEN Titel ausgeben – Header kommt automatisch
 - "KEINE_HIGHLIGHTS"-Einträge ignorieren
 - Nur Meldungen aus den kuratierten Rohdaten verwenden, keine neuen Fakten ergänzen
-- Keine Meldung aufnehmen, wenn Datum, Quelle oder konkreter Anlass unklar bleibt
+- Keine Meldung als harte Tatsache aufnehmen, wenn Datum, Quelle oder konkreter Anlass unklar bleibt;
+  weiche LinkedIn-Signale duerfen als "Signal" oder "Gespraechsanlass" eingeordnet werden
 - Keine Vorstandsänderungen vor dem Recherchezeitraum
 - Keine Wiederholungen aus letzter Woche (außer bei Entwicklung)
 - Tonalität: DFG-Branchenbrief – investigativ, meinungsstark, personalisiert, mit Namen
 - Kein LinkedIn von Sachbearbeitern, Recruitern, Praktikanten oder reinem HR-Marketing
 - LinkedIn-Rohsignale nicht wegwerfen: kompakt clustern, wenn sie als Gespraechsanlass taugen
 - Dienstleister-Projektsignale sind wichtig, auch wenn sie nicht direkt von einer Kasse kommen
-- Zielumfang 2500-3500 Woerter, aber nicht kuenstlich aufblasen
+- Zielumfang ca. 3000 Woerter, aber nicht kuenstlich aufblasen
 - Abschnitte ohne Daten: WEGLASSEN (kein "nicht verfügbar")
 
 Schreibe auf Deutsch."""
