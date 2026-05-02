@@ -74,8 +74,21 @@ ENABLE_LINKEDIN_VOYAGER = os.environ.get("ENABLE_LINKEDIN_VOYAGER", "").lower() 
 
 RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5-nano"
 SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5-nano"
-NEWSLETTER_MODEL = os.environ.get("OPENAI_NEWSLETTER_MODEL") or "gpt-4.1"
+NEWSLETTER_MODEL = os.environ.get("OPENAI_NEWSLETTER_MODEL") or "auto"
 ENABLE_OPENAI_WEB_RESEARCH = os.environ.get("ENABLE_OPENAI_WEB_RESEARCH", "").lower() in {"1", "true", "yes"}
+
+NEWSLETTER_MODEL_CANDIDATES = [
+    "gpt-5.5-pro",
+    "gpt-5.5",
+    "gpt-5.4-pro",
+    "gpt-5.4",
+    "gpt-5.4-long-context",
+    "gpt-5.4-mini",
+    "gpt-5.3-chat-latest",
+    "gpt-5.2",
+    "gpt-5.1",
+    "gpt-4.1",
+]
 
 GKV_CONTEXT_TERMS = {
     "gkv", "krankenkasse", "krankenkassen", "gesetzliche krankenversicherung",
@@ -1859,13 +1872,19 @@ def describe_api_key(key: str) -> str:
     return f"{kind}, Länge {len(key)}{suffix}"
 
 
-def preflight_model_access(client: openai.OpenAI, models: list[str]) -> None:
-    """Prüft früh, ob der API-Key die gewünschten Modelle laut Models API sieht."""
-    wanted = list(dict.fromkeys(models))
+def list_available_models(client: openai.OpenAI) -> list[str]:
+    """Liest die per API sichtbaren Modelle. Die Limits-Seite allein reicht nicht."""
     try:
-        available = sorted(m.id for m in client.models.list().data)
+        return sorted(m.id for m in client.models.list().data)
     except Exception as e:
         print(f"⚠️  Konnte Modellzugriff nicht vorab prüfen: {e}", file=sys.stderr)
+        return []
+
+
+def preflight_model_access(available: list[str], models: list[str]) -> None:
+    """Prüft früh, ob feste Modellnamen laut Models API sichtbar sind."""
+    wanted = [model for model in list(dict.fromkeys(models)) if model and model != "auto"]
+    if not wanted or not available:
         return
 
     missing = [model for model in wanted if model not in available]
@@ -1885,6 +1904,35 @@ def preflight_model_access(client: openai.OpenAI, models: list[str]) -> None:
     sys.exit(1)
 
 
+def choose_newsletter_model(client: openai.OpenAI, available: list[str], configured: str) -> str:
+    """Wählt das beste tatsächlich nutzbare Newsletter-Modell."""
+    if configured and configured != "auto":
+        candidates = [configured, "gpt-4.1", "gpt-5-nano"]
+    else:
+        candidates = NEWSLETTER_MODEL_CANDIDATES
+    candidates = list(dict.fromkeys(candidates))
+
+    available_set = set(available)
+    for model in candidates:
+        if available and model not in available_set:
+            print(f"   ℹ️  {model} nicht in /v1/models sichtbar – teste direkten Zugriff trotzdem kurz.")
+        try:
+            probe = client.chat.completions.create(
+                model=model,
+                max_completion_tokens=8,
+                messages=[{"role": "user", "content": "Antworte nur mit OK."}],
+            )
+            content = (probe.choices[0].message.content or "").strip()
+            if content:
+                print(f"🤖 Newsletter-Modell: {model}")
+                return model
+        except Exception as e:
+            print(f"   ⚠️  Newsletter-Modell {model} nicht nutzbar: {e}", file=sys.stderr)
+
+    print("⚠️  Kein höheres Newsletter-Modell nutzbar; falle auf gpt-5-nano zurück.", file=sys.stderr)
+    return "gpt-5-nano"
+
+
 def make_report_header(today: date, tage: int, kassen: list[dict]) -> str:
     period_start = (today - timedelta(days=tage)).strftime("%d.%m.%Y")
     period_end = today.strftime("%d.%m.%Y")
@@ -1901,6 +1949,8 @@ def make_report_header(today: date, tage: int, kassen: list[dict]) -> str:
 
 
 def main() -> None:
+    global NEWSLETTER_MODEL
+
     args = parse_args()
 
     api_key = normalize_openai_api_key(os.environ.get("OPENAI_API_KEY"))
@@ -1914,7 +1964,9 @@ def main() -> None:
     print(f"🔐 OpenAI API-Key erkannt: {describe_api_key(api_key)}")
 
     client = openai.OpenAI(api_key=api_key, timeout=API_TIMEOUT)
-    preflight_model_access(client, [RESEARCH_MODEL, SCORING_MODEL, NEWSLETTER_MODEL])
+    available_models = list_available_models(client)
+    preflight_model_access(available_models, [RESEARCH_MODEL, SCORING_MODEL])
+    NEWSLETTER_MODEL = choose_newsletter_model(client, available_models, NEWSLETTER_MODEL)
 
     today = date.today()
     kassen = filter_kassen(args)
