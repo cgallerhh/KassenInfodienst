@@ -74,7 +74,7 @@ ENABLE_LINKEDIN_VOYAGER = os.environ.get("ENABLE_LINKEDIN_VOYAGER", "").lower() 
 
 RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5-nano"
 SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5-nano"
-NEWSLETTER_MODEL = os.environ.get("OPENAI_NEWSLETTER_MODEL") or "gpt-5-nano"
+NEWSLETTER_MODEL = os.environ.get("OPENAI_NEWSLETTER_MODEL") or "gpt-4.1"
 ENABLE_OPENAI_WEB_RESEARCH = os.environ.get("ENABLE_OPENAI_WEB_RESEARCH", "").lower() in {"1", "true", "yes"}
 
 GKV_CONTEXT_TERMS = {
@@ -1295,6 +1295,84 @@ def build_observation_radar(all_research: str) -> str:
     return "## Beobachtungsradar aus Rohquellen\n\n" + "\n\n".join(blocks)
 
 
+def build_source_based_newsletter(all_research: str, today: date) -> str:
+    """Erstellt einen belastbaren Newsletter ohne Modell-Generierung, falls OpenAI leer antwortet."""
+    items = _extract_candidate_items(all_research)
+    if not items:
+        return build_empty_summary(0, today)
+
+    def section_for(item: dict) -> str:
+        blob = f"{item.get('section', '')} {item.get('text', '')}".lower()
+        if "linkedin" in blob:
+            return "LinkedIn-Signale"
+        if "rss" in blob or "news" in blob:
+            return "RSS- und News-Signale"
+        if "ausschreibung" in blob or "ted" in blob or "vergabe" in blob:
+            return "Vergaben und Ausschreibungen"
+        return "Weitere Beobachtungen"
+
+    grouped: dict[str, list[dict]] = {}
+    for item in items:
+        grouped.setdefault(section_for(item), []).append(item)
+
+    lines: list[str] = [
+        "## In dieser Ausgabe",
+        "",
+        f"- {len(items)} kuratierte Quellenmeldungen wurden gefunden und gesichert.",
+        "- Der automatische Redaktionslauf hat keinen belastbaren Fließtext geliefert; deshalb folgt ein quellenbasierter Branchenbrief.",
+        "- LinkedIn- und RSS-Signale werden als Gesprächsanlässe behandelt, nicht als bestätigte Projektabschlüsse, sofern die Quelle das nicht klar sagt.",
+        "- Schwerpunkt: GKV, IT, Digitalisierung, Dienstleister, Entscheiderstimmen und operative Marktsignale.",
+        "",
+        "## Weekly Field Notes",
+        "",
+    ]
+
+    for section, section_items in grouped.items():
+        lines.append(f"### {section}")
+        for item in section_items[:30]:
+            kasse = item.get("kasse") or "Markt"
+            text = item.get("text", "").strip()
+            if not text:
+                continue
+            lines.append(f"- **{kasse}:** {text}")
+        lines.append("")
+
+    lines.extend([
+        "## Der Wochenbericht",
+        "",
+        "Die Woche liefert genügend Rohsignale, um nicht von einer Nullmeldung zu sprechen. "
+        "Für die Vertriebsarbeit heißt das: Die folgenden Punkte sollten nicht als fertige Pipeline gelesen werden, "
+        "sondern als Themenlandkarte für Gespräche mit Kassen, Dienstleistern und Partnern.",
+        "",
+    ])
+
+    for section, section_items in grouped.items():
+        lines.append(f"### {section}: was daraus zu lesen ist")
+        lines.append(
+            "Diese Signale verdienen Nachverfolgung, weil sie zeigen, wo Kassen, Dienstleister oder Entscheider "
+            "öffentlich über Strategie, Umsetzung, Betrieb oder Marktbewegung sprechen."
+        )
+        for item in section_items[:12]:
+            kasse = item.get("kasse") or "Markt"
+            text = item.get("text", "").strip()
+            if text:
+                lines.append(f"- **{kasse}:** {text}")
+        lines.append("")
+
+    lines.extend([
+        "## Was jetzt zu tun ist",
+        "",
+        "- Die LinkedIn-Signale nach Autor, Rolle und Organisation priorisieren: Vorstand, C-Level, Geschäftsführung und offizielle Accounts zuerst.",
+        "- Bei Dienstleistermeldungen prüfen, ob ein Go-live, Rollout, Zuschlag, Projektabschluss oder neuer GKV-Kunde ableitbar ist.",
+        "- Bei RSS-Treffern die Originalquelle öffnen und entscheiden, ob daraus ein konkreter Account-Anlass entsteht.",
+        "- Für TK, DAK, BARMER und große BKKen gezielt prüfen, ob die Signale zu Servicecenter, Automatisierung, Portal, Daten oder IT-Betrieb passen.",
+        "- Wiederkehrende Autoren aus LinkedIn in eine Beobachtungsliste übernehmen.",
+        "- Falls GPT-5.4 nach OpenAI-Org-Verifizierung verfügbar wird, den Newsletter wieder automatisch redaktionell ausformulieren lassen.",
+        "",
+    ])
+    return "\n".join(lines)
+
+
 
 # ---------------------------------------------------------------------------
 # Executive Summary
@@ -1980,6 +2058,13 @@ def main() -> None:
         except openai.OpenAIError as e:
             print(f"   ⚠️  Newsletter-Fehler: {e}", file=sys.stderr)
             summary = f"> ⚠️ Newsletter konnte nicht erstellt werden: {e}\n"
+
+        if len(summary.strip()) < 500:
+            print(
+                f"   ⚠️  Newsletter-Modell lieferte nur {len(summary.strip())} Zeichen – nutze quellenbasierten Fallback.",
+                file=sys.stderr,
+            )
+            summary = build_source_based_newsletter(all_research, today)
 
         # Gedächtnis für nächste Woche speichern
         if summary and "konnte nicht erstellt" not in summary:
