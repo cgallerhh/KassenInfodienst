@@ -66,6 +66,7 @@ REPORTS_DIR = Path("reports")
 MIN_TED_VALUE_EUR = 1_000_000
 MIN_RELEVANCE_SCORE = 4
 MAX_SCORING_ITEMS = 180
+MAX_NEWSLETTER_SOURCES = env_int("MAX_NEWSLETTER_SOURCES", 24)
 LINKEDIN_QUERY_LIMIT = env_int("LINKEDIN_QUERY_LIMIT", 2)
 LINKEDIN_RADAR_LIMIT = env_int("LINKEDIN_RADAR_LIMIT", 30)
 LINKEDIN_POSTS_PER_ACCOUNT = env_int("LINKEDIN_POSTS_PER_ACCOUNT", 8)
@@ -154,6 +155,15 @@ def find_url_in_obj(value, allowed_domains: tuple[str, ...] | None = None) -> st
             if not allowed_domains or any(domain in url for domain in allowed_domains):
                 return url
     return ""
+
+
+def source_link(url: str, label: str = "Quelle") -> str:
+    """Formatiert Quellen als kurze Markdown-Links statt langer Redirect-URLs."""
+    clean = (url or "").strip()
+    if not clean:
+        return "Quelle nicht verlinkt"
+    clean = clean.rstrip(".,;")
+    return f"[{label}]({clean})"
 
 
 # ---------------------------------------------------------------------------
@@ -632,7 +642,7 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             if reactions:
                 line += f" _(👍 {likes} · 💬 {comments})_"
             if post_url:
-                line += f" → {post_url}"
+                line += f" → {source_link(post_url, 'LinkedIn')}"
             else:
                 line += " _(Quelle: LinkedIn via LinkdAPI, keine Post-URL geliefert)_"
             findings.append(line)
@@ -936,7 +946,7 @@ def scrape_linkedin_rss(kassen: list[dict], tage: int) -> str:
                 resp = req.get(rss_url, headers=HEADERS, timeout=10)
                 if resp.status_code == 200:
                     for title, link in _parse_rss_xml(resp.text, cutoff)[:5]:
-                        company_findings.append(f"  - {title} → {link}")
+                        company_findings.append(f"  - {title} → {source_link(link)}")
             except Exception:
                 pass
 
@@ -1004,7 +1014,7 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                 if not any(term in title_lower for term in GKV_CONTEXT_TERMS):
                     continue
                 seen_links.add(link)
-                market_findings.append(f"  - {title} → {link}")
+                market_findings.append(f"  - {title} → {source_link(link)}")
                 if len(market_findings) >= NEWS_RSS_MARKET_LIMIT:
                     break
         except Exception as e:
@@ -1055,7 +1065,7 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                 if not any(term in title_lower for term in include_terms):
                     continue
                 seen_links.add(link)
-                findings.append(f"  - {title} → {link}")
+                findings.append(f"  - {title} → {source_link(link)}")
                 if len(findings) >= 3:
                     break
         except Exception as e:
@@ -1322,6 +1332,14 @@ Rohmeldungen:
     print(f"   🧹 Relevanzfilter: {len(kept) + len(fallback)} behalten, {dropped} verworfen.")
     if not kept and not fallback:
         return ""
+    if len(kept) + len(fallback) > MAX_NEWSLETTER_SOURCES:
+        print(
+            f"   ✂️  Quellenradar auf {MAX_NEWSLETTER_SOURCES} eindeutige Meldungen gekürzt "
+            f"(vorher {len(kept) + len(fallback)})."
+        )
+    kept = kept[:MAX_NEWSLETTER_SOURCES]
+    remaining = max(0, MAX_NEWSLETTER_SOURCES - len(kept))
+    fallback = fallback[:remaining]
     parts: list[str] = []
     if kept:
         parts.append("## Kuratierte Rohmeldungen\n\n" + "\n\n".join(kept))
@@ -1376,6 +1394,7 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
             continue
         seen_keys.add(key)
         unique_items.append(item)
+    unique_items = unique_items[:MAX_NEWSLETTER_SOURCES]
 
     grouped: dict[str, list[dict]] = {}
     for idx, item in enumerate(unique_items, 1):
@@ -1491,10 +1510,11 @@ Maximal 5 kurze Bulletpoints. Nur Themen, keine doppelte Nacherzählung einzelne
 Jeder Bullet muss am Ende 1-3 Quellen-IDs nennen, z.B. [Q01, Q04].
 
 ## Quellenradar
-Jede relevante Quelle genau EINMAL auffuehren.
+Maximal {MAX_NEWSLETTER_SOURCES} Quellen. Jede relevante Quelle genau EINMAL auffuehren.
 Format pro Quelle:
-- **[Q01] Organisation/Person:** Kernaussage in 1 Satz. Quelle: echte URL aus Rohdaten oder "LinkedIn via LinkdAPI, keine URL geliefert".
+- **[Q01] Organisation/Person:** Kernaussage in 1 Satz. Quelle: [kurzer Linktext](echte URL) oder "LinkedIn via LinkdAPI, keine URL geliefert".
 Nicht interpretieren, nicht dramatisieren, keine zweite Erwaehnung derselben Person/Meldung.
+Quellen-IDs muessen bei Q01 starten und ohne Spruenge fortlaufend sein.
 
 ## Der Wochenbericht
 Ein durchgaengiger redaktioneller Bericht mit 4 bis 6 Zwischenueberschriften.
@@ -1503,8 +1523,8 @@ Wenn du konkrete Fakten oder Personen nennst, direkt mit Quellen-ID referenziere
 z.B. "Das ITSC-Format zeigt Community-Building im Dienstleistermarkt [Q07]."
 
 ## Was jetzt zu tun ist
-5 bis 8 konkrete Gespraechsanlaesse fuer Account Management, Partneransprache,
-Terminierung, Hypothesen und Monitoring.
+5 bis 8 konkrete Gespraechsanlaesse als kurze Bulletpoints, keine nummerierten Karten.
+Jeder Bullet referenziert 1-3 Quellen-IDs.
 
 REGELN:
 - KEINEN Titel ausgeben – Header kommt automatisch
@@ -1512,6 +1532,8 @@ REGELN:
 - Nur Meldungen aus den kuratierten Rohdaten verwenden, keine neuen Fakten ergänzen
 - Dieselbe Meldung, Person oder Quelle darf nur einmal im Quellenradar stehen.
 - Keine Platzhalterlinks wie "(LinkedIn)", "(Quelle)", "(LinkedIn Quelle)" oder "(DAZ Quelle)".
+- Keine rohen Volltext-URLs im sichtbaren Text. Immer Markdown-Link mit kurzem Label:
+  [LinkedIn](URL), [Quelle](URL), [DAZ](URL), [Google News](URL).
 - Nur echte URLs aus den Rohdaten als Link nutzen. Wenn keine URL vorhanden ist:
   "LinkedIn via LinkdAPI, keine URL geliefert" schreiben.
 - Keine Dopplungen zwischen "In dieser Ausgabe", "Quellenradar" und "Der Wochenbericht":
