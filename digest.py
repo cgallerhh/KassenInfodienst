@@ -79,17 +79,18 @@ NEWSLETTER_MODEL = os.environ.get("OPENAI_NEWSLETTER_MODEL") or "auto"
 ENABLE_OPENAI_WEB_RESEARCH = os.environ.get("ENABLE_OPENAI_WEB_RESEARCH", "").lower() in {"1", "true", "yes"}
 
 NEWSLETTER_MODEL_CANDIDATES = [
+    "gpt-5.4-mini",
     "gpt-5.5-pro",
     "gpt-5.5",
     "gpt-5.4-pro",
     "gpt-5.4",
     "gpt-5.4-long-context",
-    "gpt-5.4-mini",
     "gpt-5.3-chat-latest",
     "gpt-5.2",
     "gpt-5.1",
     "gpt-4.1",
 ]
+NEWSLETTER_API = "chat"
 
 GKV_CONTEXT_TERMS = {
     "gkv", "krankenkasse", "krankenkassen", "gesetzliche krankenversicherung",
@@ -1551,15 +1552,24 @@ REGELN:
 
 Schreibe auf Deutsch."""
 
-    completion = client.chat.completions.create(
-        model=NEWSLETTER_MODEL,
-        max_completion_tokens=7000,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    result = completion.choices[0].message.content or ""
+    if NEWSLETTER_API == "responses":
+        response = client.responses.create(
+            model=NEWSLETTER_MODEL,
+            instructions=SYSTEM_PROMPT,
+            max_output_tokens=7000,
+            input=prompt,
+        )
+        result = response.output_text or ""
+    else:
+        completion = client.chat.completions.create(
+            model=NEWSLETTER_MODEL,
+            max_completion_tokens=7000,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        result = completion.choices[0].message.content or ""
     print(result)
     return result
 
@@ -1982,8 +1992,8 @@ def preflight_model_access(available: list[str], models: list[str]) -> None:
     sys.exit(1)
 
 
-def choose_newsletter_model(client: openai.OpenAI, available: list[str], configured: str) -> str:
-    """Wählt das beste tatsächlich nutzbare Newsletter-Modell."""
+def choose_newsletter_model(client: openai.OpenAI, available: list[str], configured: str) -> tuple[str, str]:
+    """Wählt das beste tatsächlich nutzbare Newsletter-Modell samt API-Endpunkt."""
     if configured and configured != "auto":
         candidates = [configured, "gpt-4.1", "gpt-5-nano"]
     else:
@@ -2002,13 +2012,27 @@ def choose_newsletter_model(client: openai.OpenAI, available: list[str], configu
             )
             content = (probe.choices[0].message.content or "").strip()
             if content:
-                print(f"🤖 Newsletter-Modell: {model}")
-                return model
+                print(f"🤖 Newsletter-Modell: {model} via chat.completions")
+                return model, "chat"
         except Exception as e:
-            print(f"   ⚠️  Newsletter-Modell {model} nicht nutzbar: {e}", file=sys.stderr)
+            print(f"   ⚠️  Newsletter-Modell {model} via chat.completions nicht nutzbar: {e}", file=sys.stderr)
+
+        try:
+            probe = client.responses.create(
+                model=model,
+                instructions="Antworte nur mit OK.",
+                max_output_tokens=8,
+                input="OK?",
+            )
+            content = (probe.output_text or "").strip()
+            if content:
+                print(f"🤖 Newsletter-Modell: {model} via responses")
+                return model, "responses"
+        except Exception as e:
+            print(f"   ⚠️  Newsletter-Modell {model} via responses nicht nutzbar: {e}", file=sys.stderr)
 
     print("⚠️  Kein höheres Newsletter-Modell nutzbar; falle auf gpt-5-nano zurück.", file=sys.stderr)
-    return "gpt-5-nano"
+    return "gpt-5-nano", "chat"
 
 
 def make_report_header(today: date, tage: int, kassen: list[dict]) -> str:
@@ -2027,7 +2051,7 @@ def make_report_header(today: date, tage: int, kassen: list[dict]) -> str:
 
 
 def main() -> None:
-    global NEWSLETTER_MODEL
+    global NEWSLETTER_MODEL, NEWSLETTER_API
 
     args = parse_args()
 
@@ -2044,7 +2068,7 @@ def main() -> None:
     client = openai.OpenAI(api_key=api_key, timeout=API_TIMEOUT)
     available_models = list_available_models(client)
     preflight_model_access(available_models, [RESEARCH_MODEL, SCORING_MODEL])
-    NEWSLETTER_MODEL = choose_newsletter_model(client, available_models, NEWSLETTER_MODEL)
+    NEWSLETTER_MODEL, NEWSLETTER_API = choose_newsletter_model(client, available_models, NEWSLETTER_MODEL)
 
     today = date.today()
     kassen = filter_kassen(args)
