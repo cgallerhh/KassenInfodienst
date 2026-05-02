@@ -122,6 +122,40 @@ DEDICATED_GKV_PROVIDERS = {
 }
 
 
+def normalize_item_key(text: str) -> str:
+    """Stabiler Dedupe-Key für Rohmeldungen über mehrere Suchquellen hinweg."""
+    text = re.sub(r"https?://\S+", "", text.lower())
+    text = re.sub(r"[_*`#>\[\]().,;:!?\"'“”„–—-]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:220]
+
+
+def find_url_in_obj(value, allowed_domains: tuple[str, ...] | None = None) -> str:
+    """Findet die erste URL in verschachtelten API-Antworten."""
+    if isinstance(value, dict):
+        for key in (
+            "url", "postUrl", "post_url", "activityUrl", "permalink",
+            "canonicalUrl", "shareUrl", "linkedinUrl", "link",
+        ):
+            found = find_url_in_obj(value.get(key), allowed_domains)
+            if found:
+                return found
+        for child in value.values():
+            found = find_url_in_obj(child, allowed_domains)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = find_url_in_obj(child, allowed_domains)
+            if found:
+                return found
+    elif isinstance(value, str):
+        for url in re.findall(r"https?://[^\s)>\]}\"']+", value):
+            if not allowed_domains or any(domain in url for domain in allowed_domains):
+                return url
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # System-Prompt (einmalig, gecacht)
 # ---------------------------------------------------------------------------
@@ -378,6 +412,8 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
     dropped_non_decision = 0
     dropped_no_context = 0
     dropped_no_topic = 0
+    dropped_duplicate = 0
+    seen_global_posts: set[str] = set()
 
     market_target = {
         "name": "GKV & IT Markt",
@@ -474,12 +510,6 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             if not text or len(text) < 20:
                 continue
 
-            # Duplikat-Check
-            text_key = text[:80]
-            if text_key in seen_texts:
-                continue
-            seen_texts.add(text_key)
-
             # Autor + Titel (für Entscheider-Filter)
             author = post.get("author") or post.get("actor") or {}
             if isinstance(author, dict):
@@ -493,6 +523,15 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             likes = post.get("numLikes") or post.get("likes") or 0
             comments = post.get("numComments") or post.get("comments") or 0
             reactions = int(likes) + int(comments)
+
+            post_url = find_url_in_obj(post, ("linkedin.com",))
+            text_key = normalize_item_key(f"{actor_name} {text}")
+            post_key = post_url or text_key
+            if text_key in seen_texts or post_key in seen_global_posts:
+                dropped_duplicate += 1
+                continue
+            seen_texts.add(text_key)
+            seen_global_posts.add(post_key)
 
             # Relevanz-Filter:
             #   Person: nur Entscheider/Fuehrung, keine Sachbearbeiter
@@ -592,12 +631,10 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             line += f": {text[:450].strip()}"
             if reactions:
                 line += f" _(👍 {likes} · 💬 {comments})_"
-            post_url = (
-                post.get("url") or post.get("postUrl") or post.get("post_url")
-                or post.get("activityUrl") or post.get("permalink")
-            )
             if post_url:
                 line += f" → {post_url}"
+            else:
+                line += " _(Quelle: LinkedIn via LinkdAPI, keine Post-URL geliefert)_"
             findings.append(line)
 
         if findings:
@@ -610,7 +647,7 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
         print(
             "   LinkedIn LinkdAPI: "
             f"{raw_post_count} Rohposts, 0 behalten "
-            f"(Nicht-Entscheider: {dropped_non_decision}, ohne GKV-Kontext: {dropped_no_context}, ohne IT/Projekt-Thema: {dropped_no_topic})."
+            f"(Duplikate: {dropped_duplicate}, Nicht-Entscheider: {dropped_non_decision}, ohne GKV-Kontext: {dropped_no_context}, ohne IT/Projekt-Thema: {dropped_no_topic})."
         )
         return ""
 
@@ -619,7 +656,7 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
     print(
         "   LinkedIn LinkdAPI: "
         f"{raw_post_count} Rohposts, {post_count} behalten "
-        f"(Nicht-Entscheider: {dropped_non_decision}, ohne GKV-Kontext: {dropped_no_context}, ohne IT/Projekt-Thema: {dropped_no_topic})."
+        f"(Duplikate: {dropped_duplicate}, Nicht-Entscheider: {dropped_non_decision}, ohne GKV-Kontext: {dropped_no_context}, ohne IT/Projekt-Thema: {dropped_no_topic})."
     )
     return "\n".join(lines)
 
@@ -1227,7 +1264,14 @@ Rohmeldungen:
     kept: list[str] = []
     fallback: list[str] = []
     dropped = 0
+    seen_items: set[str] = set()
     for item in items:
+        dedupe_key = normalize_item_key(item.get("text", ""))
+        if dedupe_key in seen_items:
+            dropped += 1
+            continue
+        seen_items.add(dedupe_key)
+
         decision = decisions.get(item["id"], {})
         category = str(decision.get("category") or item["section"])
         text_blob = f"{item.get('section', '')} {category} {item.get('text', '')}".lower()
@@ -1266,7 +1310,7 @@ Rohmeldungen:
         if item.get("kasse"):
             header_bits.append(item["kasse"])
         block = (
-            "### " + " | ".join(header_bits) + f" | Score {score}\n"
+            f"### Q{len(kept) + len(fallback) + 1:02d} | " + " | ".join(header_bits) + f" | Score {score}\n"
             + item["text"]
             + (f"\nVertriebsrelevanz: {relevance}" if relevance else "")
         )
@@ -1324,30 +1368,41 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
             return "Vergaben und Ausschreibungen"
         return "Weitere Beobachtungen"
 
-    grouped: dict[str, list[dict]] = {}
+    unique_items: list[dict] = []
+    seen_keys: set[str] = set()
     for item in items:
+        key = normalize_item_key(item.get("text", ""))
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        unique_items.append(item)
+
+    grouped: dict[str, list[dict]] = {}
+    for idx, item in enumerate(unique_items, 1):
+        item["source_id"] = f"Q{idx:02d}"
         grouped.setdefault(section_for(item), []).append(item)
 
     lines: list[str] = [
         "## In dieser Ausgabe",
         "",
-        f"- {len(items)} kuratierte Quellenmeldungen wurden gefunden und gesichert.",
+        f"- {len(unique_items)} eindeutige Quellenmeldungen wurden gefunden und gesichert.",
         "- Der automatische Redaktionslauf hat keinen belastbaren Fließtext geliefert; deshalb folgt ein quellenbasierter Branchenbrief.",
-        "- LinkedIn- und RSS-Signale werden als Gesprächsanlässe behandelt, nicht als bestätigte Projektabschlüsse, sofern die Quelle das nicht klar sagt.",
-        "- Schwerpunkt: GKV, IT, Digitalisierung, Dienstleister, Entscheiderstimmen und operative Marktsignale.",
+        "- LinkedIn- und RSS-Signale stehen unten jeweils nur einmal im Quellenradar.",
+        "- Der Bericht danach verweist auf Quellen-IDs statt dieselbe Meldung mehrfach auszuerzählen.",
         "",
-        "## Weekly Field Notes",
+        "## Quellenradar",
         "",
     ]
 
     for section, section_items in grouped.items():
         lines.append(f"### {section}")
         for item in section_items[:30]:
+            source_id = item.get("source_id", "Q??")
             kasse = item.get("kasse") or "Markt"
             text = item.get("text", "").strip()
             if not text:
                 continue
-            lines.append(f"- **{kasse}:** {text}")
+            lines.append(f"- **[{source_id}] {kasse}:** {text}")
         lines.append("")
 
     lines.extend([
@@ -1363,13 +1418,10 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
         lines.append(f"### {section}: was daraus zu lesen ist")
         lines.append(
             "Diese Signale verdienen Nachverfolgung, weil sie zeigen, wo Kassen, Dienstleister oder Entscheider "
-            "öffentlich über Strategie, Umsetzung, Betrieb oder Marktbewegung sprechen."
+            "öffentlich über Strategie, Umsetzung, Betrieb oder Marktbewegung sprechen. Details stehen einmalig im Quellenradar."
         )
-        for item in section_items[:12]:
-            kasse = item.get("kasse") or "Markt"
-            text = item.get("text", "").strip()
-            if text:
-                lines.append(f"- **{kasse}:** {text}")
+        source_ids = ", ".join(item.get("source_id", "Q??") for item in section_items[:12])
+        lines.append(f"Relevante Quellen: {source_ids}.")
         lines.append("")
 
     lines.extend([
@@ -1435,22 +1487,20 @@ ROHDATEN DIESER WOCHE:
 FORMAT:
 
 ## In dieser Ausgabe
-5 bis 8 kurze Bulletpoints: Was muss man wissen, wenn man nur 60 Sekunden hat?
+Maximal 5 kurze Bulletpoints. Nur Themen, keine doppelte Nacherzählung einzelner Quellen.
+Jeder Bullet muss am Ende 1-3 Quellen-IDs nennen, z.B. [Q01, Q04].
 
-## Weekly Field Notes
-Kompakte, quellennahe Signal-Liste im Stil eines Branchen-Newsletters:
-- LinkedIn: Entscheiderstimmen und offizielle Accounts
-- Dienstleister: Go-lives, Rollouts, neue Kunden, gelieferte Projekte
-- Kassen & Koepfe: Personal, Strategie, Organisation
-- IT & Betrieb: KI, Automatisierung, Plattformen, Servicecenter, Cybersecurity
-- Vergaben & Druck: TED, Regulierung, Finanzierung, operative Engpaesse
+## Quellenradar
+Jede relevante Quelle genau EINMAL auffuehren.
+Format pro Quelle:
+- **[Q01] Organisation/Person:** Kernaussage in 1 Satz. Quelle: echte URL aus Rohdaten oder "LinkedIn via LinkdAPI, keine URL geliefert".
+Nicht interpretieren, nicht dramatisieren, keine zweite Erwaehnung derselben Person/Meldung.
 
 ## Der Wochenbericht
-Ein durchgaengiger redaktioneller Bericht mit 5 bis 8 Zwischenueberschriften.
-Keine duenne Stichpunkt-Sammlung. Schreibe erklaerende Absaetze, verbinde Signale,
-nenne Namen und Organisationen, und setze Links direkt in den Satz, wenn sie in den
-Rohdaten stehen. LinkedIn ist hier die Hauptquelle: mindestens die Haelfte des
-Berichts soll auf LinkedIn-Signalen, Entscheiderstimmen und offiziellen Accounts beruhen.
+Ein durchgaengiger redaktioneller Bericht mit 4 bis 6 Zwischenueberschriften.
+Hier keine Quellenliste wiederholen. Synthetisieren, einordnen, Muster erkennen.
+Wenn du konkrete Fakten oder Personen nennst, direkt mit Quellen-ID referenzieren,
+z.B. "Das ITSC-Format zeigt Community-Building im Dienstleistermarkt [Q07]."
 
 ## Was jetzt zu tun ist
 5 bis 8 konkrete Gespraechsanlaesse fuer Account Management, Partneransprache,
@@ -1460,6 +1510,12 @@ REGELN:
 - KEINEN Titel ausgeben – Header kommt automatisch
 - "KEINE_HIGHLIGHTS"-Einträge ignorieren
 - Nur Meldungen aus den kuratierten Rohdaten verwenden, keine neuen Fakten ergänzen
+- Dieselbe Meldung, Person oder Quelle darf nur einmal im Quellenradar stehen.
+- Keine Platzhalterlinks wie "(LinkedIn)", "(Quelle)", "(LinkedIn Quelle)" oder "(DAZ Quelle)".
+- Nur echte URLs aus den Rohdaten als Link nutzen. Wenn keine URL vorhanden ist:
+  "LinkedIn via LinkdAPI, keine URL geliefert" schreiben.
+- Keine Dopplungen zwischen "In dieser Ausgabe", "Quellenradar" und "Der Wochenbericht":
+  erst teasern, dann einmal belegen, danach nur noch per Quellen-ID referenzieren.
 - Keine Meldung als harte Tatsache aufnehmen, wenn Datum, Quelle oder konkreter Anlass unklar bleibt;
   weiche LinkedIn-Signale duerfen als "Signal" oder "Gespraechsanlass" eingeordnet werden
 - Keine Vorstandsänderungen vor dem Recherchezeitraum
