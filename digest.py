@@ -1969,27 +1969,41 @@ def list_available_models(client: openai.OpenAI) -> list[str]:
         return []
 
 
-def preflight_model_access(available: list[str], models: list[str]) -> None:
-    """Prüft früh, ob feste Modellnamen laut Models API sichtbar sind."""
-    wanted = [model for model in list(dict.fromkeys(models)) if model and model != "auto"]
-    if not wanted or not available:
-        return
+def choose_available_worker_model(available: list[str], configured: str, label: str) -> str:
+    """Wählt ein nutzbares Arbeitsmodell, ohne den Digest wegen Secret-Drift abzubrechen."""
+    configured = (configured or "").strip()
+    if not available:
+        print(f"⚠️  {label}-Modellzugriff nicht vorab prüfbar – nutze {configured or 'gpt-5-nano'}.", file=sys.stderr)
+        return configured or "gpt-5-nano"
 
-    missing = [model for model in wanted if model not in available]
-    if not missing:
-        print(f"🤖 OpenAI Modelle verfügbar: {', '.join(wanted)}")
-        return
+    available_set = set(available)
+    if configured and configured != "auto" and configured in available_set:
+        print(f"🤖 {label}-Modell verfügbar: {configured}")
+        return configured
 
-    gpt5_models = [model for model in available if model.startswith("gpt-5")]
-    print(
-        "❌ OpenAI Modellzugriff passt nicht zum gewünschten Setup.\n"
-        f"   Gewünscht: {', '.join(wanted)}\n"
-        f"   Nicht per API sichtbar: {', '.join(missing)}\n"
-        f"   Sichtbare gpt-5-Modelle für diesen Key: {', '.join(gpt5_models) or 'keine'}\n"
-        "   Hinweis: Die Limits-Seite kann Modelle anzeigen, die für diesen konkreten API-Key/Endpoint noch nicht freigeschaltet sind.",
-        file=sys.stderr,
-    )
-    sys.exit(1)
+    candidates = [
+        "gpt-5-nano",
+        "gpt-5-mini",
+        "gpt-5",
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-4.1",
+    ]
+    chosen = next((model for model in candidates if model in available_set), "")
+    if not chosen:
+        chosen = next((model for model in available if model.startswith("gpt-5")), configured or "gpt-5-nano")
+
+    if configured and configured != "auto" and configured != chosen:
+        gpt5_models = [model for model in available if model.startswith("gpt-5")]
+        print(
+            f"⚠️  {label}-Modell {configured} ist für diesen API-Key nicht per /v1/models sichtbar.\n"
+            f"   Nutze stattdessen: {chosen}\n"
+            f"   Sichtbare gpt-5-Modelle: {', '.join(gpt5_models) or 'keine'}",
+            file=sys.stderr,
+        )
+    else:
+        print(f"🤖 {label}-Modell: {chosen}")
+    return chosen
 
 
 def choose_newsletter_model(client: openai.OpenAI, available: list[str], configured: str) -> tuple[str, str]:
@@ -2051,7 +2065,7 @@ def make_report_header(today: date, tage: int, kassen: list[dict]) -> str:
 
 
 def main() -> None:
-    global NEWSLETTER_MODEL, NEWSLETTER_API
+    global RESEARCH_MODEL, SCORING_MODEL, NEWSLETTER_MODEL, NEWSLETTER_API
 
     args = parse_args()
 
@@ -2067,7 +2081,8 @@ def main() -> None:
 
     client = openai.OpenAI(api_key=api_key, timeout=API_TIMEOUT)
     available_models = list_available_models(client)
-    preflight_model_access(available_models, [RESEARCH_MODEL, SCORING_MODEL])
+    RESEARCH_MODEL = choose_available_worker_model(available_models, RESEARCH_MODEL, "Recherche")
+    SCORING_MODEL = choose_available_worker_model(available_models, SCORING_MODEL, "Scoring")
     NEWSLETTER_MODEL, NEWSLETTER_API = choose_newsletter_model(client, available_models, NEWSLETTER_MODEL)
 
     today = date.today()
