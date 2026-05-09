@@ -58,6 +58,7 @@ jobs:
           LINKDAPI_KEY: ${{ secrets.LINKDAPI_KEY }}
           ENABLE_LINKEDIN_VOYAGER: ${{ secrets.ENABLE_LINKEDIN_VOYAGER }}
           ENABLE_SOURCE_IMAGES: ${{ vars.ENABLE_SOURCE_IMAGES || 'true' }}
+          ENABLE_PERSONEN_RADAR: ${{ vars.ENABLE_PERSONEN_RADAR || '' }}
           MAX_NEWSLETTER_SOURCES: ${{ vars.MAX_NEWSLETTER_SOURCES || '60' }}
           MIN_NEWSLETTER_CHARS: ${{ vars.MIN_NEWSLETTER_CHARS || '' }}
           MAX_IMAGE_FETCHES: ${{ vars.MAX_IMAGE_FETCHES || '' }}

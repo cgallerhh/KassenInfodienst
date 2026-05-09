@@ -75,6 +75,7 @@ LINKEDIN_POSTS_PER_ACCOUNT = env_int("LINKEDIN_POSTS_PER_ACCOUNT", 10)
 NEWS_RSS_MARKET_LIMIT = env_int("NEWS_RSS_MARKET_LIMIT", 10)
 ENABLE_LINKEDIN_VOYAGER = os.environ.get("ENABLE_LINKEDIN_VOYAGER", "").lower() in {"1", "true", "yes"}
 ENABLE_SOURCE_IMAGES = os.environ.get("ENABLE_SOURCE_IMAGES", "true").lower() in {"1", "true", "yes"}
+ENABLE_PERSONEN_RADAR = os.environ.get("ENABLE_PERSONEN_RADAR", "").lower() in {"1", "true", "yes"}
 
 RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5-nano"
 SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5-nano"
@@ -140,6 +141,7 @@ DEDICATED_GKV_PROVIDERS = {
 
 IMAGE_CACHE: dict[str, str] = {}
 IMAGE_FETCH_COUNT = 0
+PAGE_PREVIEW_CACHE: dict[str, dict[str, str]] = {}
 
 
 def normalize_item_key(text: str) -> str:
@@ -197,6 +199,31 @@ def clean_visible_source_text(text: str) -> str:
     return cleaned.strip()
 
 
+LOW_SIGNAL_PATTERNS = (
+    "kein konkreter gkv",
+    "kein konkreter it",
+    "kein konkreter health-it",
+    "ohne konkreten gkv",
+    "ohne konkreten it",
+    "ohne konkreten health-it",
+    "ohne inhalt zu health it",
+    "ohne inhalt zu kassen",
+    "ohne kassen- oder projekt",
+    "ohne kassen oder projekt",
+    "nur abschieds",
+    "karrierepost",
+    "reiseankündigung ohne",
+    "allgemeiner nachfrage",
+    "allgemeiner ressourcendruck",
+)
+
+
+def is_low_signal_text(text: str) -> bool:
+    """Erkennt Bewertungsreste, die nicht in den Newsletter gehören."""
+    blob = clean_visible_source_text(text).lower()
+    return any(pattern in blob for pattern in LOW_SIGNAL_PATTERNS)
+
+
 def _looks_like_image_url(url: str) -> bool:
     """Erkennt Bild-URLs aus RSS, LinkedIn-CDNs und typischen Preview-Feldern."""
     if not url.startswith(("http://", "https://")):
@@ -245,20 +272,21 @@ def find_image_in_obj(value) -> str:
     return ""
 
 
-def extract_page_image(url: str) -> str:
-    """Holt ein og:image vom Artikel, begrenzt damit der Scheduled Run nicht festläuft."""
+def extract_page_preview(url: str) -> dict[str, str]:
+    """Holt Bild und Kurzbeschreibung vom Artikel, begrenzt damit der Scheduled Run nicht festläuft."""
     global IMAGE_FETCH_COUNT
 
     clean = (url or "").strip()
     if not ENABLE_SOURCE_IMAGES or not clean:
-        return ""
-    if clean in IMAGE_CACHE:
-        return IMAGE_CACHE[clean]
+        return {}
+    if clean in PAGE_PREVIEW_CACHE:
+        return PAGE_PREVIEW_CACHE[clean]
     if IMAGE_FETCH_COUNT >= MAX_IMAGE_FETCHES:
-        return ""
+        return {}
 
     IMAGE_FETCH_COUNT += 1
     image_url = ""
+    description = ""
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -273,6 +301,23 @@ def extract_page_image(url: str) -> str:
         if response.ok and "text/html" in response.headers.get("content-type", ""):
             soup = BeautifulSoup(response.text[:250000], "html.parser")
             for attrs in (
+                {"property": "og:description"},
+                {"name": "description"},
+                {"name": "twitter:description"},
+            ):
+                meta = soup.find("meta", attrs=attrs)
+                if meta:
+                    candidate = re.sub(r"\s+", " ", (meta.get("content") or "")).strip()
+                    if len(candidate) >= 45:
+                        description = candidate[:420]
+                        break
+            if not description:
+                paragraph = soup.find("p")
+                if paragraph:
+                    candidate = re.sub(r"\s+", " ", paragraph.get_text(" ")).strip()
+                    if len(candidate) >= 45:
+                        description = candidate[:420]
+            for attrs in (
                 {"property": "og:image"},
                 {"name": "twitter:image"},
                 {"property": "twitter:image"},
@@ -285,9 +330,19 @@ def extract_page_image(url: str) -> str:
                         break
     except Exception:
         image_url = ""
+        description = ""
 
+    preview = {"image": image_url, "description": description}
+    PAGE_PREVIEW_CACHE[clean] = preview
     IMAGE_CACHE[clean] = image_url
-    return image_url
+    return preview
+
+
+def extract_page_image(url: str) -> str:
+    """Holt ein og:image vom Artikel."""
+    if url in IMAGE_CACHE:
+        return IMAGE_CACHE[url]
+    return extract_page_preview(url).get("image", "")
 
 
 def add_image_marker(line: str, image_url: str) -> str:
@@ -296,6 +351,16 @@ def add_image_marker(line: str, image_url: str) -> str:
     if not image_url:
         return line
     return f"{line}\n    Bild: ![Vorschaubild]({image_url})"
+
+
+def add_source_preview(line: str, url: str, image_url: str = "") -> str:
+    """Ergänzt Quellenzeilen um Bild und Kurzkontext fuer echte Artikelkarten."""
+    preview = extract_page_preview(url)
+    result = add_image_marker(line, image_url or preview.get("image", ""))
+    description = (preview.get("description") or "").strip()
+    if description:
+        result += f"\n    Kontext: {description}"
+    return result
 
 
 def collect_visuals_from_research(all_research: str, limit: int = 6) -> list[tuple[str, str]]:
@@ -335,16 +400,54 @@ def ensure_visuals_in_summary(summary: str, all_research: str) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def extract_markdown_link(text: str) -> tuple[str, str]:
+    """Liest den ersten Markdown-Link aus einer Quellenmeldung."""
+    match = re.search(r"\[([^\]]{1,80})\]\((https?://[^)]+)\)", text or "")
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+    match = re.search(r"https?://[^\s)>\]}\"']+", text or "")
+    if match:
+        return "Quelle", match.group(0).rstrip(".,;")
+    return "", ""
+
+
+def extract_image_url(text: str) -> str:
+    match = re.search(r"!\[[^\]]*\]\((https?://[^)]+)\)", text or "")
+    return match.group(1).strip() if match else ""
+
+
+def split_source_context(text: str) -> tuple[str, str]:
+    """Trennt Meldungstext und angereicherten Artikelkontext."""
+    context_match = re.search(r"\n?Kontext:\s*(.+)", text or "", flags=re.S)
+    if not context_match:
+        return text, ""
+    context = context_match.group(1).strip()
+    main = (text or "")[:context_match.start()].strip()
+    return main, context
+
+
+def readable_source_text(text: str) -> str:
+    """Bereitet Rohmeldung fuer sichtbare Zusammenfassungen auf."""
+    main, context = split_source_context(text)
+    cleaned = clean_visible_source_text(main)
+    cleaned = re.sub(r"Bild:\s*!\[[^\]]*\]\([^)]+\)", "", cleaned)
+    cleaned = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1", cleaned)
+    cleaned = re.sub(r"\s*→\s*(LinkedIn|Quelle|Google News|DAZ)\b", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -*")
+    context = re.sub(r"\s+", " ", context).strip()
+    if context and context.lower() not in cleaned.lower():
+        cleaned = f"{cleaned} {context}"
+    return cleaned[:1400].strip()
+
+
 # ---------------------------------------------------------------------------
 # System-Prompt (einmalig, gecacht)
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """Du bist Redakteur eines wöchentlichen Branchen-Newsletters für den GKV-Markt,
-im Stil des "dfg – Dienst für Gesellschaftspolitik" (Wolfgang G. Lange).
-
-Der dfg hat den Ruf, die "Bild-Zeitung des Gesundheitswesens" zu sein:
-investigativ, meinungsstark, provokant – aber immer faktenbasiert.
-Dein Newsletter ist die Story hinter der Story.
+im Stil einer persoenlichen Wochenzeitung: quellenstark, gut gegliedert,
+ausfuehrlich genug zum Verstehen und pointiert genug fuer den Vertrieb.
+Dein Newsletter ist die Story hinter der Story, aber ohne Rohdatenmüll.
 
 Dein Leser ist ein erfahrener Account Manager im B2B-IT-Vertrieb an gesetzliche Krankenkassen.
 Er braucht keine Grundlageninfos – er kennt den Markt. Er will einen woechentlichen
@@ -352,14 +455,11 @@ Branchenueberblick zu GKV & IT: Entscheiderstimmen, Dienstleister-Projekte,
 Digitalisierung, Betrieb, Automatisierung, KI im Gesundheitswesen und konkrete
 Gespraechsanlaesse.
 
-TONALITÄT (dfg-Stil):
-- Investigativ-vertraulich: Du weißt, was hinter den Kulissen passiert
-- Punchy Headlines mit Ironie-Anführungszeichen, rhetorischen Fragen, Ausrufezeichen
-- Horse-Race-Framing: Jede Entwicklung ist ein Wettbewerb – wer gewinnt, wer verliert?
-- Vivide Metaphern: Kosten "galoppieren davon", Kassen "schwächeln", jemand macht "den größten Sprung"
-- Personalisierung: Jede Entscheidung hat ein Gesicht – immer Namen nennen
-- Provokation durch Gegenüberstellung: Das Billigste neben das Teuerste stellen
-- Countdown-Atmosphäre: Fristen, Deadlines, Dringlichkeit
+TONALITÄT:
+- Zeitung statt Rohdatenliste: klare Überschrift, Lead, Zusammenfassung, Einordnung
+- meinungsstark, aber nicht boulevardesk
+- Personalisierung: Wenn eine Entwicklung ein Gesicht hat, Namen und Rolle nennen
+- Keine internen Scores, keine Debug-Wörter, keine Formulierungen wie "ohne konkreten Kontext"
 - Wenn nichts Relevantes gefunden: Kasse WEGLASSEN statt leere Platzhalter
 
 WAS RELEVANT IST (nur darüber berichten):
@@ -396,11 +496,12 @@ Schreibe keinen Report pro Kasse mit leeren Abschnitten. Das Ziel ist ein
 durchgaengiger Wochenbericht mit eingebetteten Quellenlinks, aehnlich einem
 redaktionellen Newsletter:
 
-1. "In dieser Ausgabe" - 5 bis 8 kurze, harte Orientierungspunkte.
-2. Redaktionelle Rubriken wie in einer Presseschau: LinkedIn-Leitstimmen,
-   Kassen/Koepfe, Dienstleister, Ausschreibungen, Regulierung und Markttrends.
-3. Pro Rubrik mehrere kurze Einträge mit pointierter Überschrift, Einordnung,
-   Quellenlink und Vertriebsimplikation.
+1. "In dieser Ausgabe" - 5 bis 8 Orientierungspunkte mit Links.
+2. Redaktionelle Rubriken wie in einer Wochenzeitung: Kassen/Koepfe,
+   LinkedIn-Leitstimmen, Dienstleister, Ausschreibungen, Regulierung und Markttrends.
+3. Pro Meldung ein kleiner Artikel: pointierte Überschrift, Bild falls vorhanden,
+   2 bis 4 Absätze Zusammenfassung/Einordnung, Quellenlink als "Zum Artikel" oder
+   "Zum LinkedIn-Beitrag".
 4. "Was jetzt zu tun ist" - 5 bis 8 konkrete Gespraechsanlaesse und naechste Schritte.
 
 WICHTIG:
@@ -411,6 +512,8 @@ WICHTIG:
   Trenner/Quellenbilder uebernehmen. Bilder nicht als rohe URL ausschreiben.
 - Branchenstimmen nicht kaputtfiltern: Gute Health-IT-/KI-Einordnung ist relevant,
   auch wenn sie als Markttrend und nicht als Deal-Signal zu behandeln ist.
+  Aber: Einzelne Influencer duerfen maximal 1-2 Meldungen dominieren. Der Newsletter
+  ist keine Personenchronik, sondern eine GKV-Wochenuebersicht.
 - Abschnitte WEGLASSEN wenn nichts Relevantes gefunden.
 - Kein "Keine Informationen gefunden" - einfach weglassen.
 - Immer Quellen/Links nennen wo verfuegbar, am besten direkt im Satz.
@@ -1148,7 +1251,7 @@ def scrape_linkedin_rss(kassen: list[dict], tage: int) -> str:
                 if resp.status_code == 200:
                     for title, link in _parse_rss_xml(resp.text, cutoff)[:5]:
                         line = f"  - {title} → {source_link(link)}"
-                        company_findings.append(add_image_marker(line, extract_page_image(link)))
+                        company_findings.append(add_source_preview(line, link))
             except Exception:
                 pass
 
@@ -1220,7 +1323,7 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                     continue
                 seen_links.add(link)
                 line = f"  - {title} → {source_link(link)}"
-                market_findings.append(add_image_marker(line, extract_page_image(link)))
+                market_findings.append(add_source_preview(line, link))
                 if len(market_findings) >= NEWS_RSS_MARKET_LIMIT:
                     break
         except Exception as e:
@@ -1278,7 +1381,7 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                         continue
                     seen_links.add(link)
                     line = f"  - {title} → {source_link(link)}"
-                    findings.append(add_image_marker(line, extract_page_image(link)))
+                    findings.append(add_source_preview(line, link))
                     if len(findings) >= 4:
                         break
             except Exception as e:
@@ -1388,7 +1491,7 @@ def _extract_candidate_items(all_research: str) -> list[dict]:
         if line.startswith("**") and line.endswith(":"):
             current_kasse = line.strip("*: ")
             continue
-        if line.startswith("Bild:") and items:
+        if (line.startswith("Bild:") or line.startswith("Kontext:")) and items:
             items[-1]["text"] = f"{items[-1]['text']}\n{line}"
             continue
         if line.startswith(("- ", "* ", "  - ")) or re.match(r"^\d+\.\s+", line):
@@ -1549,6 +1652,11 @@ Rohmeldungen:
             continue
 
         relevance = str(decision.get("sales_relevance") or "").strip()
+        if is_low_signal_text(f"{item.get('text', '')}\n{relevance}\n{decision.get('exclude_reason', '')}"):
+            dropped += 1
+            print(f"      verworfen {item['id']} Score {score}: Bewertet als zu allgemein/ohne GKV-IT-Bezug", file=sys.stderr)
+            continue
+
         header_bits = [category]
         if item.get("kasse"):
             header_bits.append(item["kasse"])
@@ -1607,7 +1715,7 @@ def build_observation_radar(all_research: str) -> str:
 
 
 def build_source_based_newsletter(all_research: str, today: date) -> str:
-    """Erstellt einen belastbaren Newsletter ohne Modell-Generierung, falls OpenAI leer antwortet."""
+    """Erstellt einen lesbaren Zeitungs-Fallback, falls die Modell-Generierung leer bleibt."""
     items = _extract_candidate_items(all_research)
     if not items:
         return build_empty_summary(0, today)
@@ -1615,22 +1723,28 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
     def section_for(item: dict) -> str:
         blob = f"{item.get('section', '')} {item.get('text', '')}".lower()
         if "linkedin" in blob:
-            return "LinkedIn-Signale"
+            return "LinkedIn: Stimmen und Signale"
         if "rss" in blob or "news" in blob:
-            return "RSS- und News-Signale"
+            return "News und Fachpresse"
         if "ausschreibung" in blob or "ted" in blob or "vergabe" in blob:
             return "Vergaben und Ausschreibungen"
-        return "Weitere Beobachtungen"
+        return "Markt und Organisation"
+
+    def item_source(item: dict) -> tuple[str, str]:
+        return extract_markdown_link(item.get("text", ""))
+
+    def item_image(item: dict) -> str:
+        return extract_image_url(item.get("text", ""))
 
     def headline_for(item: dict) -> str:
-        text = clean_visible_source_text(item.get("text", ""))
+        text = readable_source_text(item.get("text", ""))
         kasse = clean_visible_source_text(item.get("kasse", "") or "")
         text = re.sub(r"^\[[0-9?.-]+\]\s*", "", text)
         text = re.sub(r"^\*\*([^*]{3,80})\*\*\s*:?\s*", r"\1: ", text)
-        if ":" in text:
-            candidate = text.split(":", 1)[0]
-        elif " - " in text:
+        if " - " in text:
             candidate = text.split(" - ", 1)[0]
+        elif ":" in text:
+            candidate = text.split(":", 1)[0]
         else:
             candidate = text.split(".", 1)[0]
         candidate = re.sub(r"\s+", " ", candidate).strip(" -*")
@@ -1640,18 +1754,57 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
             candidate = candidate[:89].rstrip() + "..."
         return candidate or "Signal aus dem Markt"
 
-    def body_for(item: dict) -> str:
-        text = clean_visible_source_text(item.get("text", ""))
+    def article_paragraphs(item: dict) -> list[str]:
+        text = readable_source_text(item.get("text", ""))
         text = re.sub(r"^\[[0-9?.-]+\]\s*", "", text)
         text = re.sub(r"^\*\*([^*]{3,80})\*\*\s*:?\s*", "", text)
-        text = text.strip()
+        text = re.sub(r"\bEinordnung:\s*", "", text).strip()
         if not text:
-            return "Dieses Signal lohnt sich als kurzer Gesprächsanlass im nächsten Account- oder Partnerkontakt."
-        return text
+            text = "Dieses Signal lohnt sich als kurzer Gesprächsanlass im nächsten Account- oder Partnerkontakt."
+
+        if len(text) > 620:
+            text = text[:617].rstrip() + "..."
+
+        section = section_for(item)
+        if "LinkedIn" in section:
+            why = (
+                "Für den Wochenblick zählt daran weniger die Einzelmeinung als das sichtbare Thema: "
+                "Wer so öffentlich spricht, markiert Gesprächsbedarf, Agenda oder Unsicherheit im Markt."
+            )
+        elif "News" in section:
+            why = (
+                "Für GKV-IT ist das ein Beobachtungspunkt, weil Fachpresse- und RSS-Signale oft früher zeigen, "
+                "welche Vorhaben, Anbieter oder Versorgungsthemen in den Kassen ankommen."
+            )
+        elif "Vergaben" in section:
+            why = (
+                "Für Vertrieb und Partnermanagement ist das ein konkreter Anlass, Zuständigkeiten, Fristen, "
+                "Plattformbedarf und mögliche Anschlussprojekte zu prüfen."
+            )
+        else:
+            why = (
+                "Für die Branchenübersicht ist das relevant, weil sich hier Marktbewegung, Organisation und "
+                "mögliche IT-Nachfrage verdichten."
+            )
+        return [f"**Kurzfassung:** {text}", f"**Einordnung:** {why}"]
+
+    def article_block(item: dict) -> list[str]:
+        label, url = item_source(item)
+        image = item_image(item)
+        lines = [f"### {headline_for(item)}"]
+        if image:
+            lines.append(f"![{headline_for(item)}]({image})")
+        lines.extend(article_paragraphs(item))
+        if url:
+            link_text = "Zum LinkedIn-Beitrag" if "linkedin" in (label + url).lower() else "Zum Artikel"
+            lines.append(f'<p class="more"><a href="{url}">{link_text}</a></p>')
+        return lines
 
     unique_items: list[dict] = []
     seen_keys: set[str] = set()
     for item in items:
+        if is_low_signal_text(item.get("text", "")):
+            continue
         key = normalize_item_key(item.get("text", ""))
         if key in seen_keys:
             continue
@@ -1664,31 +1817,42 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
         item["source_id"] = f"Q{idx:02d}"
         grouped.setdefault(section_for(item), []).append(item)
 
+    issue_teasers: list[str] = []
+    for item in unique_items[:8]:
+        label, url = item_source(item)
+        teaser = readable_source_text(item.get("text", ""))
+        teaser = re.sub(r"^\[[0-9?.-]+\]\s*", "", teaser)
+        teaser = re.sub(r"^\*\*([^*]{3,80})\*\*\s*:?\s*", "", teaser)
+        teaser = re.sub(r"\bEinordnung:\s*", "", teaser).strip()
+        if len(teaser) > 230:
+            teaser = teaser[:227].rstrip() + "..."
+        if url:
+            link_label = "LinkedIn" if "linkedin" in (label + url).lower() else "Quelle"
+            teaser = f"{teaser} [{link_label}]({url})"
+        issue_teasers.append(f"- **{headline_for(item)}:** {teaser}")
+
     lines: list[str] = [
         "## In dieser Ausgabe",
         "",
-        f"- {len(unique_items)} relevante Signale aus LinkedIn, News und Marktquellen.",
-        "- Fokus: GKV, Health IT, KI, Dienstleisterbewegungen und konkrete Gesprächsanlässe.",
-        "- Jeder Eintrag ist als kurzer Presseschau-Baustein formuliert: Was passiert ist, warum es zählt, was du daraus machen kannst.",
+        *issue_teasers,
         "",
     ]
 
     for section, section_items in grouped.items():
         lines.append(f"## {section}")
         for item in section_items[:18]:
-            lines.append(f"### {headline_for(item)}")
-            lines.append(body_for(item))
+            lines.extend(article_block(item))
+            lines.append("")
         lines.append("")
 
     lines.extend([
         "## Was jetzt zu tun ist",
         "",
-        "- Die LinkedIn-Signale nach Autor, Rolle und Organisation priorisieren: Vorstand, C-Level, Geschäftsführung und offizielle Accounts zuerst.",
-        "- Bei Dienstleistermeldungen prüfen, ob ein Go-live, Rollout, Zuschlag, Projektabschluss oder neuer GKV-Kunde ableitbar ist.",
-        "- Bei RSS-Treffern die Originalquelle öffnen und entscheiden, ob daraus ein konkreter Account-Anlass entsteht.",
-        "- Für TK, DAK, BARMER und große BKKen gezielt prüfen, ob die Signale zu Servicecenter, Automatisierung, Portal, Daten oder IT-Betrieb passen.",
-        "- Wiederkehrende Autoren aus LinkedIn in eine Beobachtungsliste übernehmen.",
-        "- Bild- und Messepostings nicht als Selbstzweck lesen: dahinter stecken haeufig Ansprechpartner, Themenbudgets und laufende Projektfenster.",
+        "- LinkedIn-Beiträge nicht nach Lautstärke, sondern nach Rolle, Organisation und konkretem GKV-/IT-Bezug priorisieren.",
+        "- RSS- und Fachpressequellen öffnen: Entscheidend ist, ob hinter der Meldung ein Vorhaben, Anbieterwechsel, Rollout oder Budgetfenster liegt.",
+        "- Dienstleistermeldungen auf konkrete Belege prüfen: Kunde, Go-live, Zuschlag, Plattform, Betriebsleistung oder Community-Format.",
+        "- Für große Kassen systematisch abgleichen: Passt das Signal zu Servicecenter, Automatisierung, Portal, Daten, IT-Betrieb oder Versorgung?",
+        "- Wiederkehrende Entscheider und offizielle Accounts als Beobachtungsliste führen, damit der nächste Lauf nicht wieder bei null beginnt.",
         "",
     ])
     return ensure_visuals_in_summary("\n".join(lines), all_research)
@@ -1748,20 +1912,21 @@ ROHDATEN DIESER WOCHE:
 FORMAT:
 
 ## In dieser Ausgabe
-Maximal 5 kurze Bulletpoints. Nur Themen, keine doppelte Nacherzählung einzelner Quellen.
+5 bis 8 kurze Bulletpoints. Jeder Punkt ist ein echter Teaser mit direktem Quellenlink.
 
-Danach folgen redaktionelle Presseschau-Rubriken, z.B.:
-## LinkedIn-Leitstimmen
+Danach folgen redaktionelle Zeitungsrubriken, z.B.:
 ## Kassen und Köpfe
+## LinkedIn-Leitstimmen
 ## Dienstleister und Projekte
 ## Vergaben und Ausschreibungen
 ## Regulierung und Markt
 
-Unter jeder Rubrik stehen einzelne Einträge:
+Unter jeder Rubrik stehen einzelne Kurzartikel:
 ### Kurze, pointierte Überschrift
-5 bis 7 Sätze Fließtext. Erst konkret sagen, was passiert ist. Dann einordnen:
-Warum ist das für GKV, Health IT, KI, Automatisierung oder Vertrieb relevant?
-Am Ende ein kurzer Gesprächsanlass. Quellenlink direkt im Text einbauen.
+2 bis 4 Absätze Fließtext. Erst konkret zusammenfassen, was passiert ist.
+Dann einordnen: Warum ist das für GKV, Health IT, KI, Automatisierung,
+Versorgung, Dienstleister oder Vertrieb relevant? Am Ende ein kurzer Gesprächsanlass.
+Quellenlink als sichtbarer Abschluss: [Zum Artikel](URL) oder [Zum LinkedIn-Beitrag](URL).
 Wenn Rohdaten eine Zeile "Bild: ![Vorschaubild](...)" enthalten, uebernimm 4 bis 6
 passende Bilder in den Bericht. Bilder gehoeren unter den Absatz, zu dem sie passen.
 
@@ -1773,6 +1938,8 @@ REGELN:
 - "KEINE_HIGHLIGHTS"-Einträge ignorieren
 - Nur Meldungen aus den kuratierten Rohdaten verwenden, keine neuen Fakten ergänzen
 - Keine sichtbaren internen Scores, keine Roh-IDs, keine Formulierungen wie "Quellenradar", "Rohsignal", "kuratierte Rohmeldung" oder "Nullmeldung".
+- Wenn eine Rohmeldung bereits als "ohne konkreten Kontext", "kein konkreter GKV-/IT-Bezug",
+  "nur Karrieremeldung" oder "nur Reiseankündigung" eingeordnet ist: weglassen.
 - Keine Platzhalterlinks wie "(LinkedIn)", "(Quelle)", "(LinkedIn Quelle)" oder "(DAZ Quelle)".
 - Keine rohen Volltext-URLs im sichtbaren Text. Immer Markdown-Link mit kurzem Label:
   [LinkedIn](URL), [Quelle](URL), [DAZ](URL), [Google News](URL).
@@ -1783,11 +1950,12 @@ REGELN:
   weiche LinkedIn-Signale duerfen als "Signal" oder "Gespraechsanlass" eingeordnet werden
 - Keine Vorstandsänderungen vor dem Recherchezeitraum
 - Keine Wiederholungen aus letzter Woche (außer bei Entwicklung)
-- Tonalität: DFG-Branchenbrief – investigativ, meinungsstark, personalisiert, mit Namen
+- Tonalität: persoenliche Wochenzeitung fuer GKV & IT – praezise, pointiert, mit Namen
 - Kein LinkedIn von Sachbearbeitern, Recruitern, Praktikanten oder reinem HR-Marketing
 - LinkedIn-Rohsignale nicht wegwerfen: kompakt clustern, wenn sie als Gespraechsanlass taugen
 - Thought-Leadership-Signale nicht wegwerfen: Wenn eine anerkannte Branchenstimme
   Health IT, KI, Digital Health oder Versorgung einordnet, als Markttrend aufnehmen.
+  Einzelne Personen duerfen aber maximal 1-2 Meldungen bekommen; nicht eine Person dominieren lassen.
 - Dienstleister-Projektsignale sind wichtig, auch wenn sie nicht direkt von einer Kasse kommen
 - Zielumfang 3500 bis 5000 Woerter ernst nehmen. Bei {source_count} Quellen darf der Newsletter nicht kurz ausfallen.
 - Abschnitte ohne Daten: WEGLASSEN (kein "nicht verfügbar")
@@ -1895,8 +2063,7 @@ def build_html_email(report_content: str, today: date) -> str:
     kw = today.isocalendar()[1]
     escaped_date = html_lib.escape(date_str)
 
-    # Optik angelehnt an die Presseschau: schwarzer Masthead, klare Rubrikbalken,
-    # redaktionelle Artikelzeilen statt grauer Debug-Karten.
+    # Zeitungsoptik: ruhiger Masthead, klare Ressortlinien und Artikel statt Debug-Karten.
     return f"""<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -1907,7 +2074,7 @@ def build_html_email(report_content: str, today: date) -> str:
     body {{
       margin: 0;
       padding: 0;
-      background: #EBEBEB;
+      background: #F2F0EA;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
       color: #111111;
       font-size: 15px;
@@ -1915,40 +2082,43 @@ def build_html_email(report_content: str, today: date) -> str:
     }}
     .outer {{
       width: 100%;
-      background: #EBEBEB;
+      background: #F2F0EA;
     }}
     .wrapper {{
-      max-width: 660px;
+      max-width: 760px;
       width: 100%;
       margin: 0 auto;
     }}
 
     .header {{
-      background: #0D0D0D;
-      padding: 44px 40px 36px;
-      border-radius: 14px;
-      margin: 28px 0 14px;
+      background: #FFFFFF;
+      padding: 28px 40px 24px;
+      border-radius: 4px 4px 0 0;
+      border-top: 5px solid #111111;
+      border-bottom: 1px solid #D9D6CC;
+      margin: 28px 0 0;
+      text-align: center;
     }}
     .header-eyebrow {{
       font-size: 11px;
-      font-weight: 600;
+      font-weight: 800;
       letter-spacing: 3px;
       text-transform: uppercase;
-      color: #666666;
+      color: #555555;
       margin: 0 0 2px;
     }}
     .header h1 {{
       font-family: Georgia, 'Times New Roman', serif;
       font-size: 48px;
       font-weight: 900;
-      color: #FFFFFF;
+      color: #111111;
       letter-spacing: -1.2px;
       line-height: 1.05;
-      margin: 0 0 22px;
+      margin: 0 0 18px;
     }}
     .spectrum {{
       border-collapse: collapse;
-      margin: 0 0 8px;
+      margin: 0 auto 8px;
     }}
     .spectrum td {{
       height: 4px;
@@ -1959,7 +2129,7 @@ def build_html_email(report_content: str, today: date) -> str:
     }}
     .header-sub {{
       font-size: 10px;
-      color: #555555;
+      color: #666666;
       letter-spacing: 0.3px;
       margin: 0 0 22px;
     }}
@@ -1969,7 +2139,7 @@ def build_html_email(report_content: str, today: date) -> str:
     }}
     .header-meta td {{
       font-size: 13px;
-      color: #777777;
+      color: #555555;
       padding: 0;
     }}
     .header-meta .right {{
@@ -1980,38 +2150,45 @@ def build_html_email(report_content: str, today: date) -> str:
 
     .card {{
       background: #ffffff;
-      border-radius: 14px;
+      border-radius: 0 0 4px 4px;
       overflow: hidden;
-      margin: 0 0 14px;
+      margin: 0 0 18px;
+      text-align: left;
+      border-bottom: 1px solid #D9D6CC;
     }}
 
     h2 {{
-      margin: 0;
-      padding: 14px 28px;
-      background: #0D0D0D;
-      color: #FFFFFF;
-      font-size: 15px;
+      margin: 30px 28px 8px;
+      padding: 9px 0 8px;
+      background: transparent;
+      color: #111111;
+      border-top: 3px double #111111;
+      border-bottom: 1px solid #D9D6CC;
+      font-size: 12px;
       font-weight: 800;
-      letter-spacing: 2.5px;
+      letter-spacing: 1.7px;
       text-transform: uppercase;
       font-family: 'Helvetica Neue', Arial, sans-serif;
+      text-align: left;
     }}
     h3 {{
       margin: 0;
       padding: 22px 28px 0;
       font-family: Georgia, 'Times New Roman', serif;
-      font-size: 20px;
+      font-size: 24px;
       font-weight: 700;
       color: #111111;
-      line-height: 1.3;
+      line-height: 1.24;
+      text-align: left;
     }}
 
     p {{
       margin: 0;
-      padding: 8px 28px 14px;
-      color: #444444;
+      padding: 8px 28px 13px;
+      color: #333333;
       font-size: 15px;
-      line-height: 1.75;
+      line-height: 1.78;
+      text-align: left;
     }}
     h2 + p {{
       padding-top: 20px;
@@ -2019,12 +2196,12 @@ def build_html_email(report_content: str, today: date) -> str:
 
     .card img {{
       display: block;
-      width: 100%;
-      max-width: 100%;
-      max-height: 240px;
+      width: calc(100% - 56px);
+      max-width: calc(100% - 56px);
+      max-height: 280px;
       object-fit: cover;
       border: 0;
-      margin: 10px 0 18px;
+      margin: 12px 28px 18px;
       background: #F5F5F5;
     }}
 
@@ -2042,12 +2219,13 @@ def build_html_email(report_content: str, today: date) -> str:
       margin: 0;
     }}
     li {{
-      padding: 16px 28px 18px;
-      border-bottom: 1px solid #EFEFEF;
-      color: #444444;
+      padding: 13px 28px 15px;
+      border-bottom: 1px solid #EEEAE0;
+      color: #333333;
       background: #FFFFFF;
       font-size: 15px;
       line-height: 1.72;
+      text-align: left;
     }}
     li:last-child {{
       border-bottom: none;
@@ -2061,6 +2239,20 @@ def build_html_email(report_content: str, today: date) -> str:
       color: #1A5276;
       text-decoration: none;
       font-weight: 700;
+    }}
+    .more {{
+      padding-top: 2px;
+      padding-bottom: 24px;
+    }}
+    .more a {{
+      display: inline-block;
+      padding: 8px 13px;
+      background: #111111;
+      color: #FFFFFF;
+      border-radius: 3px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
     }}
     strong {{ color: #111111; font-weight: 800; }}
     em     {{ color: #777777; font-style: normal; font-size: 13px; }}
@@ -2114,7 +2306,7 @@ def build_html_email(report_content: str, today: date) -> str:
     .footer a {{ color: #888888; }}
   </style>
 </head>
-<body style="margin:0;padding:0;background:#EBEBEB;">
+<body style="margin:0;padding:0;background:#F2F0EA;">
   <table class="outer" width="100%" cellpadding="0" cellspacing="0" border="0">
     <tr><td align="center" style="padding:28px 12px 40px;">
       <div class="wrapper">
@@ -2453,6 +2645,11 @@ def main() -> None:
     print(f"   Ausgabe:   {output_path}")
     print()
 
+    personen_targets = BEOBACHTETE_PERSONEN if ENABLE_PERSONEN_RADAR else []
+    if not ENABLE_PERSONEN_RADAR and BEOBACHTETE_PERSONEN:
+        print("👥 Personen-Radar übersprungen (ENABLE_PERSONEN_RADAR nicht gesetzt; vermeidet Personen-Übergewicht).")
+        print()
+
     # TED-Ausschreibungen vorab abrufen (1 API-Call für alle Kassen)
     print("📋 TED-Ausschreibungen abrufen ...")
     # TED: mindestens 30 Tage Fenster (GKV-Ausschreibungen kommen selten)
@@ -2466,7 +2663,7 @@ def main() -> None:
 
     # Schneller Scheduled-Standard: deterministische News-RSS-Suche statt OpenAI Web Search.
     print("📰 News-RSS abrufen ...")
-    news_data = scrape_news_rss(kassen + BEOBACHTETE_ORGS + BEOBACHTETE_PERSONEN, args.tage)
+    news_data = scrape_news_rss(kassen + BEOBACHTETE_ORGS + personen_targets, args.tage)
     if news_data:
         news_count = news_data.count("\n  - ")
         print(f"   ✅ {news_count} News-RSS-Treffer gesammelt.")
@@ -2478,7 +2675,7 @@ def main() -> None:
 
     # Optional: OpenAI Web Search. Für Cron standardmäßig aus, weil es bei allen Kassen
     # zu langsam/fragil ist. Bei Bedarf ENABLE_OPENAI_WEB_RESEARCH=true setzen.
-    research_targets = kassen + BEOBACHTETE_ORGS + BEOBACHTETE_PERSONEN
+    research_targets = kassen + BEOBACHTETE_ORGS + personen_targets
     if ENABLE_OPENAI_WEB_RESEARCH:
         batches = [research_targets[i : i + BATCH_SIZE] for i in range(0, len(research_targets), BATCH_SIZE)]
 
@@ -2521,7 +2718,7 @@ def main() -> None:
 
     # LinkedIn-Posts scrapen: LinkdAPI > Voyager-API > RSS-Fallback
     # Neben Kassen und Dienstleistern werden auch Branchenstimmen beobachtet.
-    linkedin_targets = kassen + BEOBACHTETE_ORGS + BEOBACHTETE_PERSONEN
+    linkedin_targets = kassen + BEOBACHTETE_ORGS + personen_targets
     linkedin_data = ""
     if os.environ.get("LINKDAPI_KEY"):
         print("🔗 LinkedIn via LinkdAPI (inkl. BITMARCK + ITSC) ...")
