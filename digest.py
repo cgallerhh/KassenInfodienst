@@ -287,6 +287,7 @@ def extract_page_preview(url: str) -> dict[str, str]:
     IMAGE_FETCH_COUNT += 1
     image_url = ""
     description = ""
+    final_url = clean
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -298,6 +299,7 @@ def extract_page_preview(url: str) -> dict[str, str]:
         from bs4 import BeautifulSoup
 
         response = req.get(clean, headers=headers, timeout=5, allow_redirects=True)
+        final_url = response.url or clean
         if response.ok and "text/html" in response.headers.get("content-type", ""):
             soup = BeautifulSoup(response.text[:250000], "html.parser")
             for attrs in (
@@ -312,11 +314,35 @@ def extract_page_preview(url: str) -> dict[str, str]:
                         description = candidate[:420]
                         break
             if not description:
-                paragraph = soup.find("p")
-                if paragraph:
-                    candidate = re.sub(r"\s+", " ", paragraph.get_text(" ")).strip()
-                    if len(candidate) >= 45:
-                        description = candidate[:420]
+                for selector in (
+                    "article",
+                    '[role="article"]',
+                    "main",
+                    ".article-body",
+                    ".article__body",
+                    ".entry-content",
+                    ".post-content",
+                    ".article-content",
+                ):
+                    node = soup.select_one(selector)
+                    if not node:
+                        continue
+                    paragraphs = [
+                        re.sub(r"\s+", " ", p.get_text(" ")).strip()
+                        for p in node.find_all("p")
+                    ]
+                    candidate = " ".join(p for p in paragraphs if len(p) >= 35)
+                    if len(candidate) >= 120:
+                        description = candidate[:900]
+                        break
+            if not description:
+                paragraphs = [
+                    re.sub(r"\s+", " ", p.get_text(" ")).strip()
+                    for p in soup.find_all("p")[:6]
+                ]
+                candidate = " ".join(p for p in paragraphs if len(p) >= 35)
+                if len(candidate) >= 45:
+                    description = candidate[:900]
             for attrs in (
                 {"property": "og:image"},
                 {"name": "twitter:image"},
@@ -331,8 +357,9 @@ def extract_page_preview(url: str) -> dict[str, str]:
     except Exception:
         image_url = ""
         description = ""
+        final_url = clean
 
-    preview = {"image": image_url, "description": description}
+    preview = {"image": image_url, "description": description, "url": final_url}
     PAGE_PREVIEW_CACHE[clean] = preview
     IMAGE_CACHE[clean] = image_url
     return preview
@@ -356,6 +383,9 @@ def add_image_marker(line: str, image_url: str) -> str:
 def add_source_preview(line: str, url: str, image_url: str = "") -> str:
     """Ergänzt Quellenzeilen um Bild und Kurzkontext fuer echte Artikelkarten."""
     preview = extract_page_preview(url)
+    final_url = preview.get("url") or url
+    if final_url and final_url != url:
+        line = line.replace(f"]({url})", f"]({final_url})")
     result = add_image_marker(line, image_url or preview.get("image", ""))
     description = (preview.get("description") or "").strip()
     if description:
@@ -440,6 +470,145 @@ def readable_source_text(text: str) -> str:
     return cleaned[:1400].strip()
 
 
+def strip_source_noise(text: str) -> str:
+    """Entfernt technische Quellenpräfixe, damit daraus redaktioneller Text werden kann."""
+    main, _context = split_source_context(text)
+    cleaned = clean_visible_source_text(main)
+    cleaned = re.sub(r"Bild:\s*!\[[^\]]*\]\([^)]+\)", "", cleaned)
+    cleaned = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1", cleaned)
+    cleaned = re.sub(r"\s*→\s*(LinkedIn|Quelle|Google News|DAZ)\b", "", cleaned)
+    cleaned = cleaned.replace("**", "")
+    cleaned = re.sub(
+        r"^(LinkedIn|News/RSS|RSS|Personal|Automatisierung|Ausschreibung|"
+        r"Branchenstimme|Sonstiges|Kuratierte Quellen)\s*\|\s*",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    cleaned = re.sub(r"^[^:]{1,90}\s+\((LinkedIn|News/RSS|RSS)\)\s*", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"^\[[0-9?.-]+\]\s*", "", cleaned)
+    cleaned = re.sub(r"\bEinordnung:\s*", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -*")
+    return cleaned
+
+
+def source_kind(item: dict, label: str = "", url: str = "") -> str:
+    blob = f"{item.get('section', '')} {item.get('text', '')} {label} {url}".lower()
+    if "linkedin" in blob:
+        return "LinkedIn"
+    if "ausschreibung" in blob or "ted" in blob or "vergabe" in blob:
+        return "Vergabe"
+    if "rss" in blob or "news" in blob:
+        return "News/RSS"
+    return "Marktquelle"
+
+
+def source_date_hint(text: str) -> str:
+    match = re.search(r"\[([0-9]{2}\.[0-9]{2}\.[0-9]{4})\]", text or "")
+    return match.group(1) if match else ""
+
+
+def headline_hint_from_text(text: str, fallback: str = "Marktsignal") -> str:
+    cleaned = strip_source_noise(text)
+    cleaned = re.sub(r"^\w+\s+\|\s*", "", cleaned)
+    if ":" in cleaned[:160]:
+        candidate = cleaned.split(":", 1)[0]
+    else:
+        candidate = " ".join(cleaned.split()[:12])
+    candidate = re.sub(r"\s+", " ", candidate).strip(" -*")
+    if len(candidate) < 8:
+        candidate = fallback
+    if len(candidate) > 90:
+        candidate = candidate[:87].rstrip() + "..."
+    return candidate
+
+
+def build_editorial_source_items(all_research: str, limit: int | None = None) -> list[dict]:
+    """Baut aus Rohmeldungen eine saubere Quellenliste für den redaktionellen Schritt."""
+    result: list[dict] = []
+    seen: set[str] = set()
+    max_items = limit or MAX_NEWSLETTER_SOURCES
+
+    for item in _extract_candidate_items(all_research):
+        raw_text = item.get("text", "")
+        if not raw_text or is_low_signal_text(raw_text):
+            continue
+        label, url = extract_markdown_link(raw_text)
+        cleaned = strip_source_noise(raw_text)
+        if len(cleaned) < 35:
+            continue
+        key = normalize_item_key(f"{url} {cleaned}")
+        if key in seen:
+            continue
+        seen.add(key)
+        context = split_source_context(raw_text)[1]
+        source_id = f"S{len(result) + 1:02d}"
+        kind = source_kind(item, label, url)
+        org = clean_visible_source_text(item.get("kasse", "") or "")
+        result.append({
+            "id": source_id,
+            "kind": kind,
+            "org": org or "Markt",
+            "date": source_date_hint(raw_text),
+            "headline": headline_hint_from_text(raw_text, org or "Marktsignal"),
+            "text": cleaned[:1200],
+            "context": re.sub(r"\s+", " ", context).strip()[:900],
+            "url": url,
+            "link_label": label,
+            "image": extract_image_url(raw_text),
+        })
+        if len(result) >= max_items:
+            break
+    return result
+
+
+def build_editorial_source_pack(all_research: str, limit: int | None = None) -> tuple[str, list[dict]]:
+    """Formatiert Quellen so, dass das Modell keine Rohüberschriften kopiert."""
+    items = build_editorial_source_items(all_research, limit)
+    blocks: list[str] = []
+    for item in items:
+        lines = [
+            f"[{item['id']}] {item['kind']} | Organisation/Account: {item['org']}",
+            f"Titelhinweis: {item['headline']}",
+            f"Text: {item['text']}",
+        ]
+        if item["date"]:
+            lines.insert(1, f"Datum: {item['date']}")
+        if item["context"]:
+            lines.append(f"Artikelkontext: {item['context']}")
+        if item["url"]:
+            lines.append(f"URL: {item['url']}")
+        if item["image"]:
+            lines.append(f"Bild: {item['image']}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks), items
+
+
+def newsletter_needs_repair(text: str, source_count: int = 0) -> bool:
+    """Erkennt Outputs, die noch wie Rohdaten statt Branchenbrief wirken."""
+    cleaned = text or ""
+    if len(cleaned.strip()) < 500:
+        return True
+    raw_markers = (
+        "LinkedIn |",
+        "News/RSS",
+        "Einordnung:**",
+        "Kuratierte Quellen",
+        "Rohsignal",
+        "Quellenradar",
+    )
+    if any(marker in cleaned for marker in raw_markers):
+        return True
+    heading_count = len(re.findall(r"^###\s+", cleaned, flags=re.M))
+    long_paragraphs = len([
+        line for line in cleaned.splitlines()
+        if len(line.strip()) > 180 and not line.lstrip().startswith(("#", "-", "*", "!["))
+    ])
+    if source_count >= 12 and heading_count >= 8 and long_paragraphs < heading_count * 2:
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # System-Prompt (einmalig, gecacht)
 # ---------------------------------------------------------------------------
@@ -499,15 +668,20 @@ redaktionellen Newsletter:
 1. "In dieser Ausgabe" - 5 bis 8 Orientierungspunkte mit Links.
 2. Redaktionelle Rubriken wie in einer Wochenzeitung: Kassen/Koepfe,
    LinkedIn-Leitstimmen, Dienstleister, Ausschreibungen, Regulierung und Markttrends.
-3. Pro Meldung ein kleiner Artikel: pointierte Überschrift, Bild falls vorhanden,
-   2 bis 4 Absätze Zusammenfassung/Einordnung, Quellenlink als "Zum Artikel" oder
-   "Zum LinkedIn-Beitrag".
-4. "Was jetzt zu tun ist" - 5 bis 8 konkrete Gespraechsanlaesse und naechste Schritte.
+3. Nicht jede Quelle einzeln abhandeln. Erst Themen clustern, dann 6 bis 9
+   redaktionelle Storys schreiben. Mehrere LinkedIn-Posts zum selben Thema
+   gehoeren in EINEN Abschnitt.
+4. Pro Story: pointierte Überschrift, Bild falls vorhanden, 3 bis 6 Absätze
+   Fließtext mit Zusammenfassung, Einordnung, Vertriebsrelevanz und Quellenlink
+   als "Zum Artikel" oder "Zum LinkedIn-Beitrag".
+5. "Was jetzt zu tun ist" - 5 bis 8 konkrete Gespraechsanlaesse und naechste Schritte.
 
 WICHTIG:
 - Zielumfang 3500 bis 5000 Woerter, wenn genug Rohdaten vorhanden sind.
 - LinkedIn ist die Hauptquelle: Stimmen von Entscheidern und offiziellen Accounts
   nicht nur als Anhang nennen, sondern in die Story einbauen.
+- Der Newsletter soll mehr Fließtext als Überschriften haben. Keine Liste aus
+  Einzelkarten. Keine Überschrift aus Rohdaten kopieren.
 - Wenn Rohdaten Bild-Markdown enthalten, 4 bis 6 passende Bilder als visuelle
   Trenner/Quellenbilder uebernehmen. Bilder nicht als rohe URL ausschreiben.
 - Branchenstimmen nicht kaputtfiltern: Gute Health-IT-/KI-Einordnung ist relevant,
@@ -516,6 +690,8 @@ WICHTIG:
   ist keine Personenchronik, sondern eine GKV-Wochenuebersicht.
 - Abschnitte WEGLASSEN wenn nichts Relevantes gefunden.
 - Kein "Keine Informationen gefunden" - einfach weglassen.
+- Keine Labels wie "Kurzfassung:" oder "Einordnung:" in der finalen Fassung.
+  Die Einordnung muss als normaler Absatz geschrieben werden.
 - Immer Quellen/Links nennen wo verfuegbar, am besten direkt im Satz.
 - Schreibe auf Deutsch."""
 
@@ -942,7 +1118,7 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             line = f"  - [{post_date}] **{actor_name}**"
             if actor_title:
                 line += f" ({actor_title[:60]})"
-            line += f": {text[:450].strip()}"
+            line += f": {text[:900].strip()}"
             if reactions:
                 line += f" _(👍 {likes} · 💬 {comments})_"
             if post_url:
@@ -1716,133 +1892,82 @@ def build_observation_radar(all_research: str) -> str:
 
 def build_source_based_newsletter(all_research: str, today: date) -> str:
     """Erstellt einen lesbaren Zeitungs-Fallback, falls die Modell-Generierung leer bleibt."""
-    items = _extract_candidate_items(all_research)
+    items = build_editorial_source_items(all_research)
     if not items:
         return build_empty_summary(0, today)
 
-    def section_for(item: dict) -> str:
-        blob = f"{item.get('section', '')} {item.get('text', '')}".lower()
-        if "linkedin" in blob:
-            return "LinkedIn: Stimmen und Signale"
-        if "rss" in blob or "news" in blob:
-            return "News und Fachpresse"
-        if "ausschreibung" in blob or "ted" in blob or "vergabe" in blob:
-            return "Vergaben und Ausschreibungen"
-        return "Markt und Organisation"
-
-    def item_source(item: dict) -> tuple[str, str]:
-        return extract_markdown_link(item.get("text", ""))
-
-    def item_image(item: dict) -> str:
-        return extract_image_url(item.get("text", ""))
-
-    def headline_for(item: dict) -> str:
-        text = readable_source_text(item.get("text", ""))
-        kasse = clean_visible_source_text(item.get("kasse", "") or "")
-        text = re.sub(r"^\[[0-9?.-]+\]\s*", "", text)
-        text = re.sub(r"^\*\*([^*]{3,80})\*\*\s*:?\s*", r"\1: ", text)
-        if " - " in text:
-            candidate = text.split(" - ", 1)[0]
-        elif ":" in text:
-            candidate = text.split(":", 1)[0]
-        else:
-            candidate = text.split(".", 1)[0]
-        candidate = re.sub(r"\s+", " ", candidate).strip(" -*")
-        if len(candidate) < 8 and kasse:
-            candidate = kasse
-        if len(candidate) > 92:
-            candidate = candidate[:89].rstrip() + "..."
-        return candidate or "Signal aus dem Markt"
-
-    def article_paragraphs(item: dict) -> list[str]:
-        text = readable_source_text(item.get("text", ""))
-        text = re.sub(r"^\[[0-9?.-]+\]\s*", "", text)
-        text = re.sub(r"^\*\*([^*]{3,80})\*\*\s*:?\s*", "", text)
-        text = re.sub(r"\bEinordnung:\s*", "", text).strip()
-        if not text:
-            text = "Dieses Signal lohnt sich als kurzer Gesprächsanlass im nächsten Account- oder Partnerkontakt."
-
-        if len(text) > 620:
-            text = text[:617].rstrip() + "..."
-
-        section = section_for(item)
-        if "LinkedIn" in section:
-            why = (
-                "Für den Wochenblick zählt daran weniger die Einzelmeinung als das sichtbare Thema: "
-                "Wer so öffentlich spricht, markiert Gesprächsbedarf, Agenda oder Unsicherheit im Markt."
-            )
-        elif "News" in section:
-            why = (
-                "Für GKV-IT ist das ein Beobachtungspunkt, weil Fachpresse- und RSS-Signale oft früher zeigen, "
-                "welche Vorhaben, Anbieter oder Versorgungsthemen in den Kassen ankommen."
-            )
-        elif "Vergaben" in section:
-            why = (
-                "Für Vertrieb und Partnermanagement ist das ein konkreter Anlass, Zuständigkeiten, Fristen, "
-                "Plattformbedarf und mögliche Anschlussprojekte zu prüfen."
-            )
-        else:
-            why = (
-                "Für die Branchenübersicht ist das relevant, weil sich hier Marktbewegung, Organisation und "
-                "mögliche IT-Nachfrage verdichten."
-            )
-        return [f"**Kurzfassung:** {text}", f"**Einordnung:** {why}"]
-
-    def article_block(item: dict) -> list[str]:
-        label, url = item_source(item)
-        image = item_image(item)
-        lines = [f"### {headline_for(item)}"]
-        if image:
-            lines.append(f"![{headline_for(item)}]({image})")
-        lines.extend(article_paragraphs(item))
-        if url:
-            link_text = "Zum LinkedIn-Beitrag" if "linkedin" in (label + url).lower() else "Zum Artikel"
-            lines.append(f'<p class="more"><a href="{url}">{link_text}</a></p>')
-        return lines
-
-    unique_items: list[dict] = []
-    seen_keys: set[str] = set()
-    for item in items:
-        if is_low_signal_text(item.get("text", "")):
-            continue
-        key = normalize_item_key(item.get("text", ""))
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-        unique_items.append(item)
-    unique_items = unique_items[:MAX_NEWSLETTER_SOURCES]
-
-    grouped: dict[str, list[dict]] = {}
-    for idx, item in enumerate(unique_items, 1):
-        item["source_id"] = f"Q{idx:02d}"
-        grouped.setdefault(section_for(item), []).append(item)
-
     issue_teasers: list[str] = []
-    for item in unique_items[:8]:
-        label, url = item_source(item)
-        teaser = readable_source_text(item.get("text", ""))
-        teaser = re.sub(r"^\[[0-9?.-]+\]\s*", "", teaser)
-        teaser = re.sub(r"^\*\*([^*]{3,80})\*\*\s*:?\s*", "", teaser)
-        teaser = re.sub(r"\bEinordnung:\s*", "", teaser).strip()
+    for item in items[:8]:
+        teaser = item["text"]
         if len(teaser) > 230:
             teaser = teaser[:227].rstrip() + "..."
-        if url:
-            link_label = "LinkedIn" if "linkedin" in (label + url).lower() else "Quelle"
-            teaser = f"{teaser} [{link_label}]({url})"
-        issue_teasers.append(f"- **{headline_for(item)}:** {teaser}")
+        if item["url"]:
+            link_label = "LinkedIn" if item["kind"] == "LinkedIn" else "Quelle"
+            teaser = f"{teaser} [{link_label}]({item['url']})"
+        issue_teasers.append(f"- **{item['headline']}:** {teaser}")
+
+    def fallback_angle(item: dict) -> str:
+        if item["kind"] == "LinkedIn":
+            return (
+                "Für den Wochenblick ist das ein Signal aus dem Marktgespräch. Entscheidend ist nicht der einzelne Post, "
+                "sondern dass ein relevanter Account öffentlich ein Thema, eine Rolle oder eine Priorität sichtbar macht. "
+                "Das ist ein guter Anlass, die Organisation, die Zuständigkeit und mögliche Anschlussfragen in den Blick zu nehmen."
+            )
+        if item["kind"] == "Vergabe":
+            return (
+                "Für Vertrieb und Partnermanagement zählt hier der konkrete Prozess: Fristen, Zuständigkeiten, Plattformbedarf "
+                "und die Frage, welche Betriebs- oder Integrationsleistungen daraus folgen können."
+            )
+        if item["kind"] == "News/RSS":
+            return (
+                "Für GKV und IT lohnt sich der Blick auf die Quelle, weil solche Fachpresse- und RSS-Signale oft früher zeigen, "
+                "welche Themen in Versorgung, Betrieb, Daten, Automatisierung oder Dienstleistersteuerung ankommen."
+            )
+        return (
+            "Für die Branchenübersicht ist das relevant, weil hier Marktbewegung, Organisation und mögliche IT-Nachfrage zusammenlaufen."
+        )
+
+    def article_block(item: dict) -> list[str]:
+        text = item["text"]
+        if len(text) > 900:
+            text = text[:897].rstrip() + "..."
+        lines = [f"### {item['headline']}"]
+        if item["image"]:
+            lines.append(f"![{item['headline']}]({item['image']})")
+        lines.append(text)
+        if item["context"] and item["context"].lower() not in text.lower():
+            lines.append(item["context"][:700].rstrip())
+        lines.append(fallback_angle(item))
+        if item["url"]:
+            link_text = "Zum LinkedIn-Beitrag" if item["kind"] == "LinkedIn" else "Zum Artikel"
+            lines.append(f'<p class="more"><a href="{item["url"]}">{link_text}</a></p>')
+        return lines
 
     lines: list[str] = [
         "## In dieser Ausgabe",
         "",
         *issue_teasers,
         "",
+        "## Wochenlage",
+        "",
+        (
+            f"Der automatische Lauf hat {len(items)} relevante Quellen aus LinkedIn, News/RSS und Marktbeobachtung "
+            "verdichtet. Dieser fallbackbasierte Bericht ist bewusst quellenorientiert: Er zeigt die wichtigsten Signale, "
+            "ordnet sie für GKV & IT ein und verweist direkt auf die Originalquellen."
+        ),
+        "",
     ]
 
-    for section, section_items in grouped.items():
-        lines.append(f"## {section}")
-        for item in section_items[:18]:
-            lines.extend(article_block(item))
-            lines.append("")
+    lines.append("## Wichtigste Signale")
+    for item in items[:10]:
+        lines.extend(article_block(item))
+        lines.append("")
+
+    if len(items) > 10:
+        lines.append("## Weitere Quellen im Radar")
+        for item in items[10:MAX_NEWSLETTER_SOURCES]:
+            source_link_text = f" [{item['kind']}]({item['url']})" if item["url"] else f" ({item['kind']})"
+            lines.append(f"- **{item['org']}:** {item['headline']} - {item['text'][:180].rstrip()}...{source_link_text}")
         lines.append("")
 
     lines.extend([
@@ -1895,7 +2020,11 @@ BEREITS LETZTE WOCHE BERICHTET (NICHT WIEDERHOLEN):
   Sonst weglassen.
 """
 
-    source_count = len(_extract_candidate_items(all_research))
+    source_pack, editorial_items = build_editorial_source_pack(all_research)
+    source_count = len(editorial_items)
+    if not source_pack:
+        source_pack = all_research[:50000]
+
     prompt = f"""Du bist Chefredakteur des GKV-Branchenbriefs "KassenInfodienst".
 Erstelle einen woechentlichen Branchenueberblick "GKV & IT" aus den Rohdaten unten.
 Ziel: 3500 bis 5000 Woerter bzw. ein grosser Newsletter, wenn die Rohdaten genug Stoff liefern.
@@ -1906,8 +2035,8 @@ relevante Branchenstimmen zu Health IT, KI, Digital Health, Daten, Plattformen,
 Regulierung und Versorgung als Markttrend einordnen. Prof. Dr. David Matusiewicz
 und aehnliche Stimmen sind relevant, wenn ihre Posts einen Health-IT-/KI-/Digitalisierungsbezug haben.
 
-ROHDATEN DIESER WOCHE:
-{all_research[:50000]}
+SAUBERES QUELLENPAKET DIESER WOCHE:
+{source_pack[:55000]}
 {last_week_block}
 FORMAT:
 
@@ -1921,11 +2050,16 @@ Danach folgen redaktionelle Zeitungsrubriken, z.B.:
 ## Vergaben und Ausschreibungen
 ## Regulierung und Markt
 
-Unter jeder Rubrik stehen einzelne Kurzartikel:
+Wichtig: Nicht pro Quelle einen eigenen Kurzartikel schreiben. Erst die Quellen
+zu 6 bis 9 Wochenstorys clustern. Mehrere LinkedIn-Posts zu BITMARCK, DAK,
+KI, Servicecenter, Daten/Analytics oder Versorgung gehoeren jeweils in einen
+gemeinsamen Abschnitt.
+
+Unter jeder Rubrik stehen redaktionelle Storys:
 ### Kurze, pointierte Überschrift
-2 bis 4 Absätze Fließtext. Erst konkret zusammenfassen, was passiert ist.
+3 bis 6 Absätze Fließtext. Erst konkret zusammenfassen, was passiert ist.
 Dann einordnen: Warum ist das für GKV, Health IT, KI, Automatisierung,
-Versorgung, Dienstleister oder Vertrieb relevant? Am Ende ein kurzer Gesprächsanlass.
+Versorgung, Dienstleister oder Vertrieb relevant? Danach ein kurzer Gesprächsanlass.
 Quellenlink als sichtbarer Abschluss: [Zum Artikel](URL) oder [Zum LinkedIn-Beitrag](URL).
 Wenn Rohdaten eine Zeile "Bild: ![Vorschaubild](...)" enthalten, uebernimm 4 bis 6
 passende Bilder in den Bericht. Bilder gehoeren unter den Absatz, zu dem sie passen.
@@ -1944,6 +2078,9 @@ REGELN:
 - Keine rohen Volltext-URLs im sichtbaren Text. Immer Markdown-Link mit kurzem Label:
   [LinkedIn](URL), [Quelle](URL), [DAZ](URL), [Google News](URL).
 - Interne Rohdaten-IDs wie Q01, Q02, item_17 nicht sichtbar ausgeben.
+- Auch die sauberen Quellen-IDs S01, S02 usw. nicht sichtbar ausgeben.
+- Keine Rohüberschriften wie "LinkedIn | BITMARCK ..." übernehmen.
+- Keine Labels "Kurzfassung:" oder "Einordnung:" ausgeben. Schreibe normale Absätze.
 - Nur echte URLs aus den Rohdaten als Link nutzen. Wenn keine URL vorhanden ist:
   "LinkedIn via LinkdAPI, keine URL geliefert" schreiben.
 - Keine Meldung als harte Tatsache aufnehmen, wenn Datum, Quelle oder konkreter Anlass unklar bleibt;
@@ -1958,6 +2095,7 @@ REGELN:
   Einzelne Personen duerfen aber maximal 1-2 Meldungen bekommen; nicht eine Person dominieren lassen.
 - Dienstleister-Projektsignale sind wichtig, auch wenn sie nicht direkt von einer Kasse kommen
 - Zielumfang 3500 bis 5000 Woerter ernst nehmen. Bei {source_count} Quellen darf der Newsletter nicht kurz ausfallen.
+- Der Newsletter soll deutlich mehr Lesetext als Überschriften enthalten.
 - Abschnitte ohne Daten: WEGLASSEN (kein "nicht verfügbar")
 
 Schreibe auf Deutsch."""
@@ -1994,10 +2132,12 @@ Wichtig:
 - Keine Dopplungen ergaenzen.
 - Quellenlinks aus den Rohdaten als kurze Markdown-Links einbetten.
 - Vorhandene Bilder beibehalten und bei passenden Rohdaten weitere Bilder uebernehmen.
+- Nicht aus jeder Quelle eine Einzelkarte machen, sondern Themen clustern.
+- Keine Rohüberschriften wie "LinkedIn | ..." und keine Labels "Kurzfassung:"/"Einordnung:".
 - Ziel: mindestens {MIN_NEWSLETTER_CHARS} Zeichen, aber sauber lesbar.
 
-ROHDATEN:
-{all_research[:45000]}
+QUELLENPAKET:
+{source_pack[:50000]}
 
 ENTWURF:
 {result}
@@ -2023,6 +2163,48 @@ Schreibe nur die verbesserte finale Fassung, ohne Meta-Kommentar."""
             expanded = completion.choices[0].message.content or ""
         if len(expanded.strip()) > len(result.strip()):
             result = ensure_visuals_in_summary(expanded, all_research)
+    if newsletter_needs_repair(result, source_count):
+        print("   ↪️  Newsletter wirkt noch zu roh – schreibe ihn als Wochenbericht neu.")
+        repair_prompt = f"""Der folgende Newsletter wirkt noch zu sehr wie eine Rohdatenliste.
+Schreibe ihn komplett neu als persoenlichen Wochenbrief GKV & IT.
+
+Zwingende Regeln:
+- 6 bis 9 Story-Abschnitte, nicht pro Quelle ein Abschnitt.
+- Deutlich mehr Fließtext als Überschriften.
+- Keine Rohpräfixe wie "LinkedIn |", "News/RSS", "Q01", "S01".
+- Keine Labels "Kurzfassung:" oder "Einordnung:".
+- Jede Story hat 3 bis 6 Absätze und nutzt Quellenlinks als [Zum Artikel](URL)
+  oder [Zum LinkedIn-Beitrag](URL).
+- Relevante Bilder aus dem Quellenpaket übernehmen, aber nicht jedes Bild.
+- Keine neuen Fakten erfinden.
+
+QUELLENPAKET:
+{source_pack[:50000]}
+
+FEHLERHAFTER ENTWURF:
+{result[:25000]}
+
+Schreibe nur die finale Fassung."""
+        if NEWSLETTER_API == "responses":
+            response = client.responses.create(
+                model=NEWSLETTER_MODEL,
+                instructions=SYSTEM_PROMPT,
+                max_output_tokens=9000,
+                input=repair_prompt,
+            )
+            repaired = response.output_text or ""
+        else:
+            completion = client.chat.completions.create(
+                model=NEWSLETTER_MODEL,
+                max_completion_tokens=9000,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": repair_prompt},
+                ],
+            )
+            repaired = completion.choices[0].message.content or ""
+        if len(repaired.strip()) > 500:
+            result = ensure_visuals_in_summary(repaired, all_research)
     print(result)
     return result
 
@@ -2175,7 +2357,7 @@ def build_html_email(report_content: str, today: date) -> str:
       margin: 0;
       padding: 22px 28px 0;
       font-family: Georgia, 'Times New Roman', serif;
-      font-size: 24px;
+      font-size: 21px;
       font-weight: 700;
       color: #111111;
       line-height: 1.24;
@@ -2198,7 +2380,7 @@ def build_html_email(report_content: str, today: date) -> str:
       display: block;
       width: calc(100% - 56px);
       max-width: calc(100% - 56px);
-      max-height: 280px;
+      max-height: 220px;
       object-fit: cover;
       border: 0;
       margin: 12px 28px 18px;
@@ -2783,6 +2965,12 @@ def main() -> None:
         if len(summary.strip()) < 500:
             print(
                 f"   ⚠️  Newsletter-Modell lieferte nur {len(summary.strip())} Zeichen – nutze quellenbasierten Fallback.",
+                file=sys.stderr,
+            )
+            summary = build_source_based_newsletter(all_research, today)
+        elif newsletter_needs_repair(summary, highlights_count):
+            print(
+                "   ⚠️  Newsletter wirkt noch wie Rohdatenliste – nutze redaktionell bereinigten Fallback.",
                 file=sys.stderr,
             )
             summary = build_source_based_newsletter(all_research, today)
