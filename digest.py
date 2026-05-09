@@ -179,6 +179,18 @@ def source_link(url: str, label: str = "Quelle") -> str:
     return f"[{label}]({clean})"
 
 
+def clean_visible_source_text(text: str) -> str:
+    """Entfernt interne Scoring-/Markdown-Artefakte aus sichtbaren Newsletter-Quellen."""
+    cleaned = (text or "").strip()
+    cleaned = re.sub(r"^#+\s*", "", cleaned)
+    cleaned = re.sub(r"\bQ\d{2}\s*\|\s*", "", cleaned)
+    cleaned = re.sub(r"\s*\|\s*Score\s+\d+\b", "", cleaned)
+    cleaned = re.sub(r"\*\*\s*\((LinkedIn|News/RSS|RSS)\)", r"** (\1)", cleaned)
+    cleaned = cleaned.replace("Vertriebsrelevanz:", "Einordnung:")
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip()
+
+
 # ---------------------------------------------------------------------------
 # System-Prompt (einmalig, gecacht)
 # ---------------------------------------------------------------------------
@@ -241,10 +253,10 @@ durchgaengiger Wochenbericht mit eingebetteten Quellenlinks, aehnlich einem
 redaktionellen Newsletter:
 
 1. "In dieser Ausgabe" - 5 bis 8 kurze, harte Orientierungspunkte.
-2. "Quellenradar" - kompakte Signal-Liste, gruppiert nach LinkedIn-Leitstimmen,
-   Kassen/Koepfen, Dienstleistern, Ausschreibungen, Regulierung und Markttrends.
-3. "Der Wochenbericht" - laufender Branchenbericht in Abschnitten, mit
-   Einordnung, Namen, Quellenlinks und Vertriebsimplikationen.
+2. Redaktionelle Rubriken wie in einer Presseschau: LinkedIn-Leitstimmen,
+   Kassen/Koepfe, Dienstleister, Ausschreibungen, Regulierung und Markttrends.
+3. Pro Rubrik mehrere kurze Einträge mit pointierter Überschrift, Einordnung,
+   Quellenlink und Vertriebsimplikation.
 4. "Was jetzt zu tun ist" - 5 bis 8 konkrete Gespraechsanlaesse und naechste Schritte.
 
 WICHTIG:
@@ -1388,10 +1400,13 @@ Rohmeldungen:
         header_bits = [category]
         if item.get("kasse"):
             header_bits.append(item["kasse"])
+        source_id = f"Q{len(kept) + len(fallback) + 1:02d}"
+        title = " | ".join(header_bits)
+        visible_text = clean_visible_source_text(item["text"])
         block = (
-            f"### Q{len(kept) + len(fallback) + 1:02d} | " + " | ".join(header_bits) + f" | Score {score}\n"
-            + item["text"]
-            + (f"\nVertriebsrelevanz: {relevance}" if relevance else "")
+            f"### {source_id} | {title}\n"
+            + visible_text
+            + (f"\nEinordnung: {relevance}" if relevance else "")
         )
         if is_linkedin and score <= 3:
             fallback.append(block)
@@ -1411,9 +1426,9 @@ Rohmeldungen:
     fallback = fallback[:remaining]
     parts: list[str] = []
     if kept:
-        parts.append("## Kuratierte Rohmeldungen\n\n" + "\n\n".join(kept))
+        parts.append("## Kuratierte Quellen\n\n" + "\n\n".join(kept))
     if fallback:
-        parts.append("## LinkedIn-Radar Rohsignale\n\n" + "\n\n".join(fallback[:LINKEDIN_RADAR_LIMIT]))
+        parts.append("## LinkedIn-Radar\n\n" + "\n\n".join(fallback[:LINKEDIN_RADAR_LIMIT]))
     return "\n\n".join(parts)
 
 
@@ -1455,6 +1470,33 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
             return "Vergaben und Ausschreibungen"
         return "Weitere Beobachtungen"
 
+    def headline_for(item: dict) -> str:
+        text = clean_visible_source_text(item.get("text", ""))
+        kasse = clean_visible_source_text(item.get("kasse", "") or "")
+        text = re.sub(r"^\[[0-9?.-]+\]\s*", "", text)
+        text = re.sub(r"^\*\*([^*]{3,80})\*\*\s*:?\s*", r"\1: ", text)
+        if ":" in text:
+            candidate = text.split(":", 1)[0]
+        elif " - " in text:
+            candidate = text.split(" - ", 1)[0]
+        else:
+            candidate = text.split(".", 1)[0]
+        candidate = re.sub(r"\s+", " ", candidate).strip(" -*")
+        if len(candidate) < 8 and kasse:
+            candidate = kasse
+        if len(candidate) > 92:
+            candidate = candidate[:89].rstrip() + "..."
+        return candidate or "Signal aus dem Markt"
+
+    def body_for(item: dict) -> str:
+        text = clean_visible_source_text(item.get("text", ""))
+        text = re.sub(r"^\[[0-9?.-]+\]\s*", "", text)
+        text = re.sub(r"^\*\*([^*]{3,80})\*\*\s*:?\s*", "", text)
+        text = text.strip()
+        if not text:
+            return "Dieses Signal lohnt sich als kurzer Gesprächsanlass im nächsten Account- oder Partnerkontakt."
+        return text
+
     unique_items: list[dict] = []
     seen_keys: set[str] = set()
     for item in items:
@@ -1473,42 +1515,17 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
     lines: list[str] = [
         "## In dieser Ausgabe",
         "",
-        f"- {len(unique_items)} eindeutige Quellenmeldungen wurden gefunden und gesichert.",
-        "- LinkedIn-, Branchenstimmen- und RSS-Signale stehen unten jeweils nur einmal im Quellenradar.",
-        "- Der Bericht ordnet die Signale als Markttrends, Account-Anlässe und mögliche Vertriebsfenster ein.",
-        "",
-        "## Quellenradar",
+        f"- {len(unique_items)} relevante Signale aus LinkedIn, News und Marktquellen.",
+        "- Fokus: GKV, Health IT, KI, Dienstleisterbewegungen und konkrete Gesprächsanlässe.",
+        "- Jeder Eintrag ist als kurzer Presseschau-Baustein formuliert: Was passiert ist, warum es zählt, was du daraus machen kannst.",
         "",
     ]
 
     for section, section_items in grouped.items():
-        lines.append(f"### {section}")
-        for item in section_items[:30]:
-            source_id = item.get("source_id", "Q??")
-            kasse = item.get("kasse") or "Markt"
-            text = item.get("text", "").strip()
-            if not text:
-                continue
-            lines.append(f"- **[{source_id}] {kasse}:** {text}")
-        lines.append("")
-
-    lines.extend([
-        "## Der Wochenbericht",
-        "",
-        "Die Woche liefert genügend Rohsignale, um nicht von einer Nullmeldung zu sprechen. "
-        "Für die Vertriebsarbeit heißt das: Die folgenden Punkte sollten nicht als fertige Pipeline gelesen werden, "
-        "sondern als Themenlandkarte für Gespräche mit Kassen, Dienstleistern und Partnern.",
-        "",
-    ])
-
-    for section, section_items in grouped.items():
-        lines.append(f"### {section}: was daraus zu lesen ist")
-        lines.append(
-            "Diese Signale verdienen Nachverfolgung, weil sie zeigen, wo Kassen, Dienstleister oder Entscheider "
-            "öffentlich über Strategie, Umsetzung, Betrieb oder Marktbewegung sprechen. Details stehen einmalig im Quellenradar."
-        )
-        source_ids = ", ".join(item.get("source_id", "Q??") for item in section_items[:12])
-        lines.append(f"Relevante Quellen: {source_ids}.")
+        lines.append(f"## {section}")
+        for item in section_items[:18]:
+            lines.append(f"### {headline_for(item)}")
+            lines.append(body_for(item))
         lines.append("")
 
     lines.extend([
@@ -1579,39 +1596,33 @@ FORMAT:
 
 ## In dieser Ausgabe
 Maximal 5 kurze Bulletpoints. Nur Themen, keine doppelte Nacherzählung einzelner Quellen.
-Jeder Bullet muss am Ende 1-3 Quellen-IDs nennen, z.B. [Q01, Q04].
 
-## Quellenradar
-Maximal {MAX_NEWSLETTER_SOURCES} Quellen. Jede relevante Quelle genau EINMAL auffuehren.
-Format pro Quelle:
-- **[Q01] Organisation/Person:** Kernaussage in 1 Satz. Quelle: [kurzer Linktext](echte URL) oder "LinkedIn via LinkdAPI, keine URL geliefert".
-Nicht interpretieren, nicht dramatisieren, keine zweite Erwaehnung derselben Person/Meldung.
-Quellen-IDs muessen bei Q01 starten und ohne Spruenge fortlaufend sein.
-Gruppiere sichtbar nach: LinkedIn-Leitstimmen, Kassen/Koepfe, Dienstleister/Projekte,
-Ausschreibungen/Vergaben, Regulierung/Markt.
+Danach folgen redaktionelle Presseschau-Rubriken, z.B.:
+## LinkedIn-Leitstimmen
+## Kassen und Köpfe
+## Dienstleister und Projekte
+## Vergaben und Ausschreibungen
+## Regulierung und Markt
 
-## Der Wochenbericht
-Ein durchgaengiger redaktioneller Bericht mit 4 bis 6 Zwischenueberschriften.
-Hier keine Quellenliste wiederholen. Synthetisieren, einordnen, Muster erkennen.
-Wenn du konkrete Fakten oder Personen nennst, direkt mit Quellen-ID referenzieren,
-z.B. "Das ITSC-Format zeigt Community-Building im Dienstleistermarkt [Q07]."
+Unter jeder Rubrik stehen einzelne Einträge:
+### Kurze, pointierte Überschrift
+5 bis 7 Sätze Fließtext. Erst konkret sagen, was passiert ist. Dann einordnen:
+Warum ist das für GKV, Health IT, KI, Automatisierung oder Vertrieb relevant?
+Am Ende ein kurzer Gesprächsanlass. Quellenlink direkt im Text einbauen.
 
 ## Was jetzt zu tun ist
 5 bis 8 konkrete Gespraechsanlaesse als kurze Bulletpoints, keine nummerierten Karten.
-Jeder Bullet referenziert 1-3 Quellen-IDs.
 
 REGELN:
 - KEINEN Titel ausgeben – Header kommt automatisch
 - "KEINE_HIGHLIGHTS"-Einträge ignorieren
 - Nur Meldungen aus den kuratierten Rohdaten verwenden, keine neuen Fakten ergänzen
-- Dieselbe Meldung, Person oder Quelle darf nur einmal im Quellenradar stehen.
+- Keine sichtbaren internen Scores, keine Roh-IDs, keine Formulierungen wie "Quellenradar", "Rohsignal", "kuratierte Rohmeldung" oder "Nullmeldung".
 - Keine Platzhalterlinks wie "(LinkedIn)", "(Quelle)", "(LinkedIn Quelle)" oder "(DAZ Quelle)".
 - Keine rohen Volltext-URLs im sichtbaren Text. Immer Markdown-Link mit kurzem Label:
   [LinkedIn](URL), [Quelle](URL), [DAZ](URL), [Google News](URL).
 - Nur echte URLs aus den Rohdaten als Link nutzen. Wenn keine URL vorhanden ist:
   "LinkedIn via LinkdAPI, keine URL geliefert" schreiben.
-- Keine Dopplungen zwischen "In dieser Ausgabe", "Quellenradar" und "Der Wochenbericht":
-  erst teasern, dann einmal belegen, danach nur noch per Quellen-ID referenzieren.
 - Keine Meldung als harte Tatsache aufnehmen, wenn Datum, Quelle oder konkreter Anlass unklar bleibt;
   weiche LinkedIn-Signale duerfen als "Signal" oder "Gespraechsanlass" eingeordnet werden
 - Keine Vorstandsänderungen vor dem Recherchezeitraum
@@ -1670,6 +1681,7 @@ Das ist kein technischer Fehler: Die Suche lief durch, aber es gab keine belastb
 
 def build_html_email(report_content: str, today: date) -> str:
     """Konvertiert den Markdown-Bericht in eine schöne HTML-E-Mail."""
+    import html as html_lib
     import markdown as md_module
 
     html_body = md_module.markdown(
@@ -1682,9 +1694,10 @@ def build_html_email(report_content: str, today: date) -> str:
     date_str = f"{today.day}. {MONATE[today.month - 1]} {today.year}"
 
     kw = today.isocalendar()[1]
+    escaped_date = html_lib.escape(date_str)
 
-    # Gmail-kompatibles HTML: kein flex, kein ::before, kein position:absolute
-    # Topbar via <table>, Listen via border-left statt Pseudo-Elemente
+    # Optik angelehnt an die Presseschau: schwarzer Masthead, klare Rubrikbalken,
+    # redaktionelle Artikelzeilen statt grauer Debug-Karten.
     return f"""<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -1694,139 +1707,167 @@ def build_html_email(report_content: str, today: date) -> str:
   <style>
     body {{
       margin: 0;
-      padding: 24px 8px 48px;
-      background: #f1f5f9;
+      padding: 0;
+      background: #EBEBEB;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-      color: #1e293b;
+      color: #111111;
       font-size: 15px;
-      line-height: 1.7;
+      line-height: 1.68;
     }}
-    .wrapper  {{ max-width: 640px; margin: 0 auto; }}
+    .outer {{
+      width: 100%;
+      background: #EBEBEB;
+    }}
+    .wrapper {{
+      max-width: 660px;
+      width: 100%;
+      margin: 0 auto;
+    }}
 
-    /* ── Header ── */
     .header {{
-      background: #0f172a;
-      padding: 32px 36px 28px;
-      text-align: center;
-      border-radius: 14px 14px 0 0;
+      background: #0D0D0D;
+      padding: 44px 40px 36px;
+      border-radius: 14px;
+      margin: 28px 0 14px;
     }}
     .header-eyebrow {{
       font-size: 11px;
-      font-weight: 700;
+      font-weight: 600;
       letter-spacing: 3px;
       text-transform: uppercase;
-      color: #38bdf8;
-      margin: 0 0 10px;
+      color: #666666;
+      margin: 0 0 2px;
     }}
     .header h1 {{
-      font-size: 28px;
-      font-weight: 800;
-      color: #f8fafc;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 48px;
+      font-weight: 900;
+      color: #FFFFFF;
+      letter-spacing: -1.2px;
+      line-height: 1.05;
+      margin: 0 0 22px;
+    }}
+    .spectrum {{
+      border-collapse: collapse;
       margin: 0 0 8px;
     }}
+    .spectrum td {{
+      height: 4px;
+      width: 56px;
+      padding: 0;
+      line-height: 0;
+      font-size: 0;
+    }}
     .header-sub {{
-      font-size: 13px;
-      color: #64748b;
-      margin: 0 0 20px;
+      font-size: 10px;
+      color: #555555;
+      letter-spacing: 0.3px;
+      margin: 0 0 22px;
     }}
     .header-meta {{
-      font-size: 12px;
-      color: #475569;
-      border-top: 1px solid #1e293b;
-      padding-top: 14px;
-      margin-top: 4px;
+      border-collapse: collapse;
+      width: 100%;
     }}
-    .header-meta span {{ color: #38bdf8; font-weight: 600; }}
+    .header-meta td {{
+      font-size: 13px;
+      color: #777777;
+      padding: 0;
+    }}
+    .header-meta .right {{
+      text-align: right;
+      font-size: 12px;
+      color: #555555;
+    }}
 
-    /* ── Content card ── */
     .card {{
       background: #ffffff;
-      padding: 36px 36px;
-      border-radius: 0 0 14px 14px;
-      border: 1px solid #e2e8f0;
-      border-top: none;
+      border-radius: 14px;
+      overflow: hidden;
+      margin: 0 0 14px;
     }}
 
-    /* ── Section headings (##) ── */
     h2 {{
-      font-size: 17px;
-      font-weight: 700;
-      color: #0f172a;
-      margin: 40px 0 12px;
-      padding: 13px 16px;
-      background: #f8fafc;
-      border-left: 4px solid #38bdf8;
-      border-radius: 0 8px 8px 0;
-    }}
-    h2:first-child {{ margin-top: 0; }}
-
-    /* ── Sub-headings (###) ── */
-    h3 {{
-      font-size: 11px;
-      font-weight: 700;
+      margin: 0;
+      padding: 14px 28px;
+      background: #0D0D0D;
+      color: #FFFFFF;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 2.5px;
       text-transform: uppercase;
-      letter-spacing: 1.4px;
-      color: #94a3b8;
-      margin: 22px 0 6px;
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+    }}
+    h3 {{
+      margin: 0;
+      padding: 22px 28px 0;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: #111111;
+      line-height: 1.3;
     }}
 
-    p {{ margin: 8px 0; color: #334155; }}
+    p {{
+      margin: 0;
+      padding: 8px 28px 14px;
+      color: #444444;
+      font-size: 15px;
+      line-height: 1.75;
+    }}
+    h2 + p {{
+      padding-top: 20px;
+    }}
 
-    /* ── Listen: border-left (Gmail-safe) ── */
     ul {{
       list-style: none;
       padding: 0;
-      margin: 4px 0 14px;
+      margin: 0;
     }}
     li {{
-      padding: 8px 12px 8px 14px;
-      border-left: 3px solid #38bdf8;
-      border-radius: 0 5px 5px 0;
-      margin-bottom: 3px;
-      color: #334155;
-      background: #f8fafc;
-      font-size: 14px;
+      padding: 16px 28px 18px;
+      border-bottom: 1px solid #EFEFEF;
+      color: #444444;
+      background: #FFFFFF;
+      font-size: 15px;
+      line-height: 1.72;
     }}
-    li:nth-child(even) {{
-      border-left-color: #cbd5e1;
-      background: #ffffff;
+    li:last-child {{
+      border-bottom: none;
     }}
 
     a {{
-      color: #2563eb;
+      color: #1A5276;
       text-decoration: none;
-      font-weight: 500;
+      font-weight: 700;
     }}
-    strong {{ color: #0f172a; font-weight: 600; }}
-    em     {{ color: #64748b; font-style: normal; font-size: 13px; }}
+    strong {{ color: #111111; font-weight: 800; }}
+    em     {{ color: #777777; font-style: normal; font-size: 13px; }}
 
-    /* ── Blockquotes (Flurfunk) ── */
     blockquote {{
-      margin: 14px 0;
-      padding: 13px 18px;
-      background: #fefce8;
-      border-left: 4px solid #eab308;
-      border-radius: 0 8px 8px 0;
-      color: #713f12;
-      font-size: 14px;
+      margin: 0;
+      padding: 18px 28px;
+      background: #FFF8E5;
+      border-left: 0;
+      color: #4A3411;
+      font-size: 15px;
+      line-height: 1.7;
     }}
 
     hr {{
       border: none;
-      border-top: 1px solid #e2e8f0;
-      margin: 28px 0;
+      border-top: 1px solid #EFEFEF;
+      margin: 0;
     }}
 
-    /* ── Inhaltstabellen (aus Markdown) ── */
     table.content-table {{
       border-collapse: collapse;
-      width: 100%;
-      margin: 14px 0;
+      width: calc(100% - 56px);
+      margin: 20px 28px;
       font-size: 13px;
     }}
     table.content-table th {{
-      background: #0f172a;
-      color: #94a3b8;
+      background: #0D0D0D;
+      color: #FFFFFF;
       padding: 9px 13px;
       text-align: left;
       font-size: 11px;
@@ -1836,42 +1877,59 @@ def build_html_email(report_content: str, today: date) -> str:
     }}
     table.content-table td {{
       padding: 9px 13px;
-      border-bottom: 1px solid #f1f5f9;
-      color: #334155;
+      border-bottom: 1px solid #EFEFEF;
+      color: #444444;
     }}
-    table.content-table tr:nth-child(even) td {{ background: #f8fafc; }}
+    table.content-table tr:nth-child(even) td {{ background: #FAFAFA; }}
 
-    /* ── Footer ── */
     .footer {{
       text-align: center;
-      margin-top: 20px;
-      color: #94a3b8;
+      padding: 4px 0 40px;
+      color: #AAAAAA;
       font-size: 12px;
       line-height: 2;
     }}
-    .footer a {{ color: #64748b; }}
+    .footer a {{ color: #888888; }}
   </style>
 </head>
-<body>
-  <div class="wrapper">
+<body style="margin:0;padding:0;background:#EBEBEB;">
+  <table class="outer" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td align="center" style="padding:28px 12px 40px;">
+      <div class="wrapper">
 
-    <div class="header">
-      <p class="header-eyebrow">Wöchentlicher Branchenbrief</p>
-      <h1>KassenInfodienst</h1>
-      <p class="header-sub">Nur was zählt &mdash; kuratiert, analysiert, direkt.</p>
-      <p class="header-meta">GKV Marktintelligenz &nbsp;&bull;&nbsp; <span>KW&nbsp;{kw}</span> &nbsp;&bull;&nbsp; {date_str}</p>
-    </div>
+        <div class="header">
+          <p class="header-eyebrow">Wöchentlicher</p>
+          <h1>Kassen&shy;Infodienst</h1>
+          <table class="spectrum" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="background:#C0392B;border-radius:4px 0 0 4px;">&nbsp;</td>
+              <td style="background:#D35400;">&nbsp;</td>
+              <td style="background:#B7950B;">&nbsp;</td>
+              <td style="background:#1E8449;">&nbsp;</td>
+              <td style="background:#1A5276;border-radius:0 4px 4px 0;">&nbsp;</td>
+            </tr>
+          </table>
+          <p class="header-sub">GKV &middot; Health IT &middot; KI &middot; Kassen &middot; Dienstleister</p>
+          <table class="header-meta" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td>{escaped_date}</td>
+              <td class="right">KW&nbsp;{kw} &nbsp;&middot;&nbsp; Branchenbrief</td>
+            </tr>
+          </table>
+        </div>
 
-    <div class="card">
-      {html_body}
-    </div>
+        <div class="card">
+          {html_body}
+        </div>
 
-    <div class="footer">
-      Erstellt mit OpenAI &bull; {date_str}<br>
-      <a href="https://github.com/cgallerhh/KassenInfodienst">github.com/cgallerhh/KassenInfodienst</a>
-    </div>
+        <div class="footer">
+          Zusammengestellt mit OpenAI &nbsp;&middot;&nbsp; Automatischer KassenInfodienst<br>
+          <a href="https://github.com/cgallerhh/KassenInfodienst">github.com/cgallerhh/KassenInfodienst</a>
+        </div>
 
-  </div>
+      </div>
+    </td></tr>
+  </table>
 </body>
 </html>"""
 
