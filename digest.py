@@ -54,7 +54,7 @@ try:
 except ImportError:
     pass
 
-from kassen import KASSEN, BEOBACHTETE_ORGS
+from kassen import KASSEN, BEOBACHTETE_ORGS, BEOBACHTETE_PERSONEN
 
 BATCH_SIZE = 5          # Mehrere Accounts pro Web-Research-Call, damit Weekly unter dem Actions-Limit bleibt
 MAX_SEARCHES = 6        # Gezielte Suchen pro Batch
@@ -64,11 +64,11 @@ API_TIMEOUT = 75        # Timeout pro API-Call in Sekunden – bei Hänger schne
 LAST_WEEK_FILE = Path("last_week.md")   # Gedächtnis: was letzte Woche berichtet wurde
 REPORTS_DIR = Path("reports")
 MIN_TED_VALUE_EUR = 1_000_000
-MIN_RELEVANCE_SCORE = 4
-MAX_SCORING_ITEMS = 180
-MAX_NEWSLETTER_SOURCES = env_int("MAX_NEWSLETTER_SOURCES", 24)
-LINKEDIN_QUERY_LIMIT = env_int("LINKEDIN_QUERY_LIMIT", 2)
-LINKEDIN_RADAR_LIMIT = env_int("LINKEDIN_RADAR_LIMIT", 30)
+MIN_RELEVANCE_SCORE = 3
+MAX_SCORING_ITEMS = 300
+MAX_NEWSLETTER_SOURCES = env_int("MAX_NEWSLETTER_SOURCES", 60)
+LINKEDIN_QUERY_LIMIT = env_int("LINKEDIN_QUERY_LIMIT", 3)
+LINKEDIN_RADAR_LIMIT = env_int("LINKEDIN_RADAR_LIMIT", 50)
 LINKEDIN_POSTS_PER_ACCOUNT = env_int("LINKEDIN_POSTS_PER_ACCOUNT", 8)
 NEWS_RSS_MARKET_LIMIT = env_int("NEWS_RSS_MARKET_LIMIT", 6)
 ENABLE_LINKEDIN_VOYAGER = os.environ.get("ENABLE_LINKEDIN_VOYAGER", "").lower() in {"1", "true", "yes"}
@@ -96,7 +96,9 @@ GKV_CONTEXT_TERMS = {
     "gkv", "krankenkasse", "krankenkassen", "gesetzliche krankenversicherung",
     "versicherte", "versicherten", "versorgung", "leistungserbringer",
     "tk", "techniker krankenkasse", "barmer", "dak", "aok", "ikk", "bkk",
-    "kkh", "sbk", "hkk", "bitmarck", "itsc",
+    "kkh", "sbk", "hkk", "bitmarck", "itsc", "gesundheitswesen",
+    "healthcare", "health-it", "health it", "digital health", "e-health",
+    "gesundheits-it", "krankenversicherung", "sozialversicherung",
 }
 
 LINKEDIN_MARKET_QUERIES = [
@@ -106,6 +108,12 @@ LINKEDIN_MARKET_QUERIES = [
     "GKV Projekt Go-live",
     "Krankenkasse KI Automatisierung",
     "Krankenkasse Servicecenter Digitalisierung",
+    "Health IT KI Gesundheitswesen",
+    "Digital Health Krankenkasse",
+    "eHealth GKV Digitalisierung",
+    "KI Gesundheitswesen Krankenkasse",
+    "Healthcare IT Deutschland",
+    "Krankenversicherung Transformation IT",
 ]
 
 NEWS_RSS_MARKET_QUERIES = [
@@ -117,6 +125,10 @@ NEWS_RSS_MARKET_QUERIES = [
     '"GKV" "Go-live"',
     '"GKV" Rollout Implementierung',
     '"Krankenkasse" Ausschreibung IT',
+    '"Health IT" "Krankenkasse"',
+    '"Digital Health" "GKV"',
+    '"KI" "Gesundheitswesen" "Krankenkasse"',
+    '"eHealth" "gesetzliche Krankenversicherung"',
 ]
 
 DEDICATED_GKV_PROVIDERS = {
@@ -181,7 +193,8 @@ Dein Newsletter ist die Story hinter der Story.
 Dein Leser ist ein erfahrener Account Manager im B2B-IT-Vertrieb an gesetzliche Krankenkassen.
 Er braucht keine Grundlageninfos – er kennt den Markt. Er will einen woechentlichen
 Branchenueberblick zu GKV & IT: Entscheiderstimmen, Dienstleister-Projekte,
-Digitalisierung, Betrieb, Automatisierung und konkrete Gespraechsanlaesse.
+Digitalisierung, Betrieb, Automatisierung, KI im Gesundheitswesen und konkrete
+Gespraechsanlaesse.
 
 TONALITÄT (dfg-Stil):
 - Investigativ-vertraulich: Du weißt, was hinter den Kulissen passiert
@@ -198,6 +211,12 @@ WAS RELEVANT IST (nur darüber berichten):
 - 📣 LinkedIn-Entscheiderstimmen: Posts von Vorständen, CFO, CCO, CDO, CIO, COO,
   Geschäftsführern, Bereichsleitern und offiziellen Kassen-/Dienstleister-Accounts
   zu IT, Service, Strategie, Versorgung, Projekten, Kooperationen oder Transformation
+- 🧠 Branchenstimmen & Thought Leadership: substanzielle Posts von anerkannten
+  Health-IT-/Digital-Health-/KI-Stimmen, z. B. Prof. Dr. David Matusiewicz,
+  wenn sie Gesundheitswesen, Krankenkassen, Versorgung, KI, Plattformen,
+  Daten, Automatisierung, Regulierung oder digitale Transformation einordnen.
+  Diese Signale sind als Marktstimmung und Gespraechsanlass relevant, auch wenn
+  nicht jedes Mal eine einzelne Kasse genannt wird.
 - 🧩 Dienstleister & Projekte: Wer hat gerade GKV-Projekte geliefert, Go-lives gefeiert,
   Rollouts abgeschlossen, Zuschläge erhalten oder neue Kassenkunden gewonnen?
 - 💎 Ausschreibungen (TED): EU-schwellenwertüberschreitende Vergaben der Kassen,
@@ -222,16 +241,18 @@ durchgaengiger Wochenbericht mit eingebetteten Quellenlinks, aehnlich einem
 redaktionellen Newsletter:
 
 1. "In dieser Ausgabe" - 5 bis 8 kurze, harte Orientierungspunkte.
-2. "Weekly Field Notes" - kompakte Signal-Liste, gruppiert nach LinkedIn,
-   Dienstleister, Kassen/Koepfe, Ausschreibungen und Regulierung.
+2. "Quellenradar" - kompakte Signal-Liste, gruppiert nach LinkedIn-Leitstimmen,
+   Kassen/Koepfen, Dienstleistern, Ausschreibungen, Regulierung und Markttrends.
 3. "Der Wochenbericht" - laufender Branchenbericht in Abschnitten, mit
    Einordnung, Namen, Quellenlinks und Vertriebsimplikationen.
 4. "Was jetzt zu tun ist" - 5 bis 8 konkrete Gespraechsanlaesse und naechste Schritte.
 
 WICHTIG:
-- Zielumfang ca. 3000 Woerter, wenn genug Rohdaten vorhanden sind.
+- Zielumfang 3500 bis 5000 Woerter, wenn genug Rohdaten vorhanden sind.
 - LinkedIn ist die Hauptquelle: Stimmen von Entscheidern und offiziellen Accounts
   nicht nur als Anhang nennen, sondern in die Story einbauen.
+- Branchenstimmen nicht kaputtfiltern: Gute Health-IT-/KI-Einordnung ist relevant,
+  auch wenn sie als Markttrend und nicht als Deal-Signal zu behandeln ist.
 - Abschnitte WEGLASSEN wenn nichts Relevantes gefunden.
 - Kein "Keine Informationen gefunden" - einfach weglassen.
 - Immer Quellen/Links nennen wo verfuegbar, am besten direkt im Satz.
@@ -442,6 +463,13 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                 f"{kasse['linkedin_search']} GKV",
                 f"{kasse['linkedin_search']} Krankenkasse",
             ]
+        elif kasse.get("type") == "influencer":
+            search_terms = kasse.get("linkedin_queries") or [
+                kasse["linkedin_search"],
+                f"{kasse['linkedin_search']} KI Gesundheit",
+                f"{kasse['linkedin_search']} Health IT",
+                f"{kasse['linkedin_search']} Krankenkasse GKV",
+            ]
         elif kasse.get("type") == "market":
             search_terms = kasse.get("linkedin_queries") or LINKEDIN_MARKET_QUERIES
         else:
@@ -457,14 +485,14 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
         search_terms = list(dict.fromkeys(search_terms))
         query_limit = (
             len(search_terms)
-            if kasse.get("type") == "market"
+            if kasse.get("type") in {"market", "influencer"}
             else int(kasse.get("linkedin_query_limit") or LINKEDIN_QUERY_LIMIT)
         )
         search_requests = [
             {"keyword": term, "date_posted": "past-month", "sort_by": "date_posted"}
             for term in search_terms[:query_limit]
         ]
-        if kasse.get("type") != "market":
+        if kasse.get("type") not in {"market", "influencer"}:
             search_requests.append(
                 {"author_company": kasse["linkedin_search"], "date_posted": "past-month", "sort_by": "date_posted"}
             )
@@ -574,6 +602,11 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                 "telematik", "gematik", "ti ", "e-rezept", "diga",
                 "versichertenservice", "digital health", "data", "analytics",
                 "versorgung", "versorgungsmanagement", "selektivvertrag",
+                "gesundheitswesen", "healthcare", "health-it", "health it",
+                "digital health", "e-health", "krankenhaus", "medizin",
+                "patient", "patienten", "telemedizin", "interoperabilität",
+                "interoperabilitaet", "epa", "khzg",
+                "gesundheitsdaten", "datennutzung", "plattformökonomie",
             }
             THEMEN_BRANCHE = {
                 "gkv", "gesundheitspolitik", "krankenversicherung", "krankenkasse",
@@ -582,6 +615,8 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                 "ministerium", "verwaltung", "verwaltungsrat", "vorstand",
                 "strategie", "markt", "kunden", "versicherte", "service",
                 "qualitaet", "qualität", "innovation",
+                "gesundheitswesen", "healthcare", "digital health", "e-health",
+                "ki", "künstliche intelligenz", "daten", "regulierung",
             }
             OFFICIAL_ACTORS = {
                 "krankenkasse", "aok", "barmer", "dak", "techniker krankenkasse",
@@ -593,9 +628,15 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             actor_blob = f"{actor_name} {actor_title}".lower()
             is_provider = kasse.get("type") == "provider"
             is_market = kasse.get("type") == "market"
+            is_influencer = kasse.get("type") == "influencer"
             is_entscheider = any(k in actor_title for k in ENTSCHEIDER)
             is_non_decision = any(k in actor_title for k in NICHT_ENTSCHEIDER)
             is_official_market_actor = is_market and any(k in actor_blob for k in OFFICIAL_ACTORS)
+            is_named_influencer = is_influencer and (
+                kasse["short"].lower() in actor_blob
+                or kasse["name"].lower() in actor_blob
+                or any(part in actor_blob for part in kasse["short"].lower().split())
+            )
             is_company_or_kasse = (
                 kasse["short"].lower() in actor_blob
                 or kasse["name"].lower() in actor_blob
@@ -623,12 +664,13 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             if is_provider and not has_gkv_context:
                 dropped_no_context += 1
                 continue
-            if not (is_entscheider or is_company_or_kasse):
+            if not (is_entscheider or is_company_or_kasse or is_named_influencer):
                 dropped_non_decision += 1
                 continue
             if not (
                 is_it_thema
                 or is_viral
+                or (is_influencer and is_branchenthema)
                 or (is_entscheider and has_gkv_context)
                 or (is_company_or_kasse and has_gkv_context and is_branchenthema)
             ):
@@ -975,6 +1017,9 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
         "verwaltungsrat", "bafin", "stellenabbau", "cio", "cdo", "digital",
         "it-", "vorstand", "go-live", "rollout", "implementierung", "migration",
         "auftrag", "zuschlag", "projekt", "kooperation", "kunde",
+        "gesundheitswesen", "healthcare", "health-it", "health it", "digital health",
+        "ehealth", "e-health", "daten", "plattform", "interoperabilität",
+        "interoperabilitaet", "telemedizin", "patienten",
     }
     exclude_terms = {
         "prävention", "ratgeber", "bonus", "gesundheitstag", "gewinnspiel",
@@ -1031,46 +1076,54 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
     for kasse in kassen:
         company = kasse["name"]
         if kasse.get("type") == "provider":
-            query = (
+            queries = [(
                 f'"{company}" '
                 '(GKV OR Krankenkasse OR Krankenkassen OR AOK OR BKK OR TK OR BARMER OR DAK) '
                 '(Projekt OR Go-live OR Rollout OR Implementierung OR Migration OR Zuschlag OR Auftrag OR Kunde) '
                 f'after:{after_date}'
-            )
+            )]
+        elif kasse.get("type") == "influencer":
+            queries = kasse.get("news_queries") or [
+                f'"{company}" (KI OR Digitalisierung OR "Health IT" OR "Digital Health" OR Gesundheitswesen) after:{after_date}'
+            ]
+            queries = [f"{query} after:{after_date}" if "after:" not in query else query for query in queries]
         else:
-            query = (
+            queries = [(
                 f'"{company}" '
                 '(KI OR Chatbot OR Automatisierung OR Software OR Cloud OR DMS OR Portal OR '
                 'Cybersecurity OR Ausschreibung OR Vergabe OR Fusion OR BaFin OR CIO OR CDO OR Stellenabbau) '
                 f'after:{after_date}'
-            )
-        rss_url = (
-            "https://news.google.com/rss/search?q="
-            + urllib.parse.quote(query)
-            + "&hl=de&gl=DE&ceid=DE:de"
-        )
+            )]
 
         findings: list[str] = []
-        try:
-            resp = req.get(rss_url, headers=HEADERS, timeout=10)
-            if resp.status_code != 200:
-                continue
-            for title, link in _parse_rss_xml(resp.text, cutoff)[:8]:
-                title_lower = title.lower()
-                if link in seen_links:
+        for query in queries[:4]:
+            rss_url = (
+                "https://news.google.com/rss/search?q="
+                + urllib.parse.quote(query)
+                + "&hl=de&gl=DE&ceid=DE:de"
+            )
+            try:
+                resp = req.get(rss_url, headers=HEADERS, timeout=10)
+                if resp.status_code != 200:
                     continue
-                if any(term in title_lower for term in exclude_terms):
-                    continue
-                if kasse.get("type") == "provider" and not any(term in title_lower for term in GKV_CONTEXT_TERMS):
-                    continue
-                if not any(term in title_lower for term in include_terms):
-                    continue
-                seen_links.add(link)
-                findings.append(f"  - {title} → {source_link(link)}")
-                if len(findings) >= 3:
-                    break
-        except Exception as e:
-            print(f"   ⚠️  News-RSS {kasse['short']}: {e}", file=sys.stderr)
+                for title, link in _parse_rss_xml(resp.text, cutoff)[:8]:
+                    title_lower = title.lower()
+                    if link in seen_links:
+                        continue
+                    if any(term in title_lower for term in exclude_terms):
+                        continue
+                    if kasse.get("type") == "provider" and not any(term in title_lower for term in GKV_CONTEXT_TERMS):
+                        continue
+                    if not any(term in title_lower for term in include_terms):
+                        continue
+                    seen_links.add(link)
+                    findings.append(f"  - {title} → {source_link(link)}")
+                    if len(findings) >= 4:
+                        break
+            except Exception as e:
+                print(f"   ⚠️  News-RSS {kasse['short']}: {e}", file=sys.stderr)
+            if len(findings) >= 4:
+                break
 
         if findings:
             all_findings.append(f"**{kasse['short']}** (News/RSS):")
@@ -1210,14 +1263,20 @@ Ziel: woechentlicher Branchenueberblick "GKV & IT" fuer einen erfahrenen B2B-IT-
 
 Score 5 = unmittelbare Vertriebschance oder starkes strategisches Signal.
 Score 4 = klar relevant, konkret, belegt, mit IT-/Automatisierungs-/Organisationsbezug.
-Score 3 = wichtiges Branchen-/LinkedIn-/Dienstleistersignal, auch wenn noch kein harter Deal erkennbar ist.
+Score 3 = wichtiges Branchen-/LinkedIn-/Dienstleister-/Thought-Leadership-Signal,
+auch wenn noch kein harter Deal erkennbar ist.
 Score 1-2 = Rauschen.
 
 LinkedIn-Regel:
-- LinkedIn-Posts mit Kassen-/BITMARCK-/ITSC-Bezug ab Score 3 behalten, wenn sie
-  Digital-, IT-, Service-, Organisations-, Personal-, Strategie- oder Projektbezug haben.
+- LinkedIn-Posts mit Kassen-/BITMARCK-/ITSC-/Health-IT-/Digital-Health-Bezug ab Score 3 behalten,
+  wenn sie Digital-, IT-, KI-, Daten-, Service-, Organisations-, Personal-, Strategie-
+  oder Projektbezug haben.
 - Entscheiderposts von CFO, CCO, CDO, CIO, COO, CEO, Vorstaenden, Geschaeftsfuehrern,
   Bereichsleitern und offiziellen Kassen-/Dienstleister-Accounts sind ausdruecklich relevant.
+- Posts von anerkannten Branchenstimmen wie Prof. Dr. David Matusiewicz behalten, wenn sie
+  Health IT, KI im Gesundheitswesen, Digital Health, Versorgung, Krankenkassen,
+  Regulierung, Daten, Plattformen oder Transformation einordnen. Diese Posts als
+  "Markttrend" oder "Gespraechsanlass" bewerten, nicht als harte Vertriebschance.
 - Posts von Sachbearbeitern, Recruitern, Juniorrollen und reinem HR-Marketing sind Rauschen.
 
 Dienstleister-Regel:
@@ -1288,6 +1347,10 @@ Rohmeldungen:
         text_blob = f"{item.get('section', '')} {category} {item.get('text', '')}".lower()
         is_linkedin = "linkedin" in text_blob
         is_rss = "rss" in text_blob
+        is_thought_leadership = any(term in text_blob for term in {
+            "matusiewicz", "health it", "health-it", "digital health",
+            "e-health", "ehealth", "gesundheitswesen", "ki im gesundheitswesen",
+        })
         is_gkv_it_signal = (
             any(term in text_blob for term in GKV_CONTEXT_TERMS)
             and any(term in text_blob for term in {
@@ -1295,6 +1358,7 @@ Rohmeldungen:
                 "cyber", "security", "portal", "servicecenter", "projekt",
                 "go-live", "rollout", "implementierung", "migration",
                 "ausschreibung", "vergabe", "zuschlag", "auftrag",
+                "daten", "plattform", "health", "gesundheitswesen",
             })
         )
         has_decision = item["id"] in decisions
@@ -1303,13 +1367,17 @@ Rohmeldungen:
             score = 3
             category = "LinkedIn"
             decision = {**decision, "keep": True, "sales_relevance": "LinkedIn-Signal fuer den Wochenradar; redaktionell einordnen statt wegwerfen."}
+        elif (not has_decision or score == 0) and is_thought_leadership:
+            score = 3
+            category = "Branchenstimme"
+            decision = {**decision, "keep": True, "sales_relevance": "Branchenstimme zu Health IT/KI; als Markttrend und Gespraechsanlass einordnen."}
         elif (not has_decision or score == 0) and is_rss and is_gkv_it_signal:
             score = 4
             category = "News/RSS"
             decision = {**decision, "keep": True, "sales_relevance": "RSS-Signal mit erkennbarem GKV-IT-Bezug; im Wochenbericht pruefen und knapp einordnen."}
 
         keep_threshold = 2 if is_linkedin else MIN_RELEVANCE_SCORE
-        keep = (bool(decision.get("keep")) or is_linkedin) and score >= keep_threshold
+        keep = (bool(decision.get("keep")) or is_linkedin or is_thought_leadership) and score >= keep_threshold
         if not keep:
             dropped += 1
             reason = str(decision.get("exclude_reason") or "kein Grund angegeben").strip()
@@ -1406,9 +1474,8 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
         "## In dieser Ausgabe",
         "",
         f"- {len(unique_items)} eindeutige Quellenmeldungen wurden gefunden und gesichert.",
-        "- Der automatische Redaktionslauf hat keinen belastbaren Fließtext geliefert; deshalb folgt ein quellenbasierter Branchenbrief.",
-        "- LinkedIn- und RSS-Signale stehen unten jeweils nur einmal im Quellenradar.",
-        "- Der Bericht danach verweist auf Quellen-IDs statt dieselbe Meldung mehrfach auszuerzählen.",
+        "- LinkedIn-, Branchenstimmen- und RSS-Signale stehen unten jeweils nur einmal im Quellenradar.",
+        "- Der Bericht ordnet die Signale als Markttrends, Account-Anlässe und mögliche Vertriebsfenster ein.",
         "",
         "## Quellenradar",
         "",
@@ -1497,9 +1564,13 @@ BEREITS LETZTE WOCHE BERICHTET (NICHT WIEDERHOLEN):
 
     prompt = f"""Du bist Chefredakteur des GKV-Branchenbriefs "KassenInfodienst".
 Erstelle einen woechentlichen Branchenueberblick "GKV & IT" aus den Rohdaten unten.
-Ziel: ca. 3000 Woerter bzw. etwa 5 DIN-A4-Seiten, wenn die Rohdaten genug Stoff liefern.
+Ziel: 3500 bis 5000 Woerter bzw. ein grosser Newsletter, wenn die Rohdaten genug Stoff liefern.
 Der Leser moechte LinkedIn nicht haendisch durchklicken. Verdichte deshalb viele
 LinkedIn-Signale zu einem lesbaren, laufenden Wochenbericht mit eingebetteten Quellenlinks.
+Wichtig: Der Newsletter soll nicht nur harte Kassenmeldungen berichten, sondern auch
+relevante Branchenstimmen zu Health IT, KI, Digital Health, Daten, Plattformen,
+Regulierung und Versorgung als Markttrend einordnen. Prof. Dr. David Matusiewicz
+und aehnliche Stimmen sind relevant, wenn ihre Posts einen Health-IT-/KI-/Digitalisierungsbezug haben.
 
 ROHDATEN DIESER WOCHE:
 {all_research[:50000]}
@@ -1516,6 +1587,8 @@ Format pro Quelle:
 - **[Q01] Organisation/Person:** Kernaussage in 1 Satz. Quelle: [kurzer Linktext](echte URL) oder "LinkedIn via LinkdAPI, keine URL geliefert".
 Nicht interpretieren, nicht dramatisieren, keine zweite Erwaehnung derselben Person/Meldung.
 Quellen-IDs muessen bei Q01 starten und ohne Spruenge fortlaufend sein.
+Gruppiere sichtbar nach: LinkedIn-Leitstimmen, Kassen/Koepfe, Dienstleister/Projekte,
+Ausschreibungen/Vergaben, Regulierung/Markt.
 
 ## Der Wochenbericht
 Ein durchgaengiger redaktioneller Bericht mit 4 bis 6 Zwischenueberschriften.
@@ -1546,8 +1619,10 @@ REGELN:
 - Tonalität: DFG-Branchenbrief – investigativ, meinungsstark, personalisiert, mit Namen
 - Kein LinkedIn von Sachbearbeitern, Recruitern, Praktikanten oder reinem HR-Marketing
 - LinkedIn-Rohsignale nicht wegwerfen: kompakt clustern, wenn sie als Gespraechsanlass taugen
+- Thought-Leadership-Signale nicht wegwerfen: Wenn eine anerkannte Branchenstimme
+  Health IT, KI, Digital Health oder Versorgung einordnet, als Markttrend aufnehmen.
 - Dienstleister-Projektsignale sind wichtig, auch wenn sie nicht direkt von einer Kasse kommen
-- Zielumfang ca. 3000 Woerter, aber nicht kuenstlich aufblasen
+- Zielumfang 3500 bis 5000 Woerter, aber nicht kuenstlich aufblasen
 - Abschnitte ohne Daten: WEGLASSEN (kein "nicht verfügbar")
 
 Schreibe auf Deutsch."""
@@ -2111,7 +2186,7 @@ def main() -> None:
 
     # Schneller Scheduled-Standard: deterministische News-RSS-Suche statt OpenAI Web Search.
     print("📰 News-RSS abrufen ...")
-    news_data = scrape_news_rss(kassen + BEOBACHTETE_ORGS, args.tage)
+    news_data = scrape_news_rss(kassen + BEOBACHTETE_ORGS + BEOBACHTETE_PERSONEN, args.tage)
     if news_data:
         news_count = news_data.count("\n  - ")
         print(f"   ✅ {news_count} News-RSS-Treffer gesammelt.")
@@ -2123,7 +2198,7 @@ def main() -> None:
 
     # Optional: OpenAI Web Search. Für Cron standardmäßig aus, weil es bei allen Kassen
     # zu langsam/fragil ist. Bei Bedarf ENABLE_OPENAI_WEB_RESEARCH=true setzen.
-    research_targets = kassen + BEOBACHTETE_ORGS
+    research_targets = kassen + BEOBACHTETE_ORGS + BEOBACHTETE_PERSONEN
     if ENABLE_OPENAI_WEB_RESEARCH:
         batches = [research_targets[i : i + BATCH_SIZE] for i in range(0, len(research_targets), BATCH_SIZE)]
 
@@ -2165,8 +2240,8 @@ def main() -> None:
         print("📡 OpenAI Web-Research übersprungen (ENABLE_OPENAI_WEB_RESEARCH nicht gesetzt).")
 
     # LinkedIn-Posts scrapen: LinkdAPI > Voyager-API > RSS-Fallback
-    # BITMARCK + ITSC nur im LinkedIn-Radar, nicht im Web-Research
-    linkedin_targets = kassen + BEOBACHTETE_ORGS
+    # Neben Kassen und Dienstleistern werden auch Branchenstimmen beobachtet.
+    linkedin_targets = kassen + BEOBACHTETE_ORGS + BEOBACHTETE_PERSONEN
     linkedin_data = ""
     if os.environ.get("LINKDAPI_KEY"):
         print("🔗 LinkedIn via LinkdAPI (inkl. BITMARCK + ITSC) ...")

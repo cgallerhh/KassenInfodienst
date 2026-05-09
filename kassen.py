@@ -387,3 +387,29 @@ BEOBACHTETE_ORGS = [
         "linkedin_url": "https://www.linkedin.com/company/soprasteria/",
     },
 ]
+
+# Branchenstimmen: Personen, deren LinkedIn-/News-Signale fuer einen grossen
+# GKV-, Health-IT- und KI-Newsletter relevant sind, auch wenn ein Post nicht
+# jedes Mal eine konkrete Krankenkasse nennt.
+BEOBACHTETE_PERSONEN = [
+    {
+        "name": "Prof. Dr. David Matusiewicz",
+        "short": "David Matusiewicz",
+        "type": "influencer",
+        "domain": "matusiewicz.de",
+        "url": "https://www.david-matusiewicz.com",
+        "linkedin_search": "Prof. Dr. David Matusiewicz",
+        "linkedin_queries": [
+            '"David Matusiewicz" Health IT',
+            '"Prof. Dr. David Matusiewicz" KI Gesundheit',
+            '"David Matusiewicz" Digitalisierung Gesundheitswesen',
+            '"David Matusiewicz" Krankenkasse GKV',
+        ],
+        "news_queries": [
+            '"David Matusiewicz" "KI" Gesundheit',
+            '"David Matusiewicz" Digitalisierung Gesundheitswesen',
+            '"David Matusiewicz" Health IT',
+        ],
+        "linkedin_url": "https://www.linkedin.com/in/david-matusiewicz/",
+    },
+]
