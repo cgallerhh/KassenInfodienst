@@ -57,7 +57,10 @@ jobs:
           LINKEDIN_JSESSIONID: ${{ secrets.LINKEDIN_JSESSIONID }}
           LINKDAPI_KEY: ${{ secrets.LINKDAPI_KEY }}
           ENABLE_LINKEDIN_VOYAGER: ${{ secrets.ENABLE_LINKEDIN_VOYAGER }}
+          ENABLE_SOURCE_IMAGES: ${{ vars.ENABLE_SOURCE_IMAGES || 'true' }}
           MAX_NEWSLETTER_SOURCES: ${{ vars.MAX_NEWSLETTER_SOURCES || '60' }}
+          MIN_NEWSLETTER_CHARS: ${{ vars.MIN_NEWSLETTER_CHARS || '' }}
+          MAX_IMAGE_FETCHES: ${{ vars.MAX_IMAGE_FETCHES || '' }}
           LINKEDIN_QUERY_LIMIT: ${{ vars.LINKEDIN_QUERY_LIMIT || '3' }}
           NEWS_RSS_MARKET_LIMIT: ${{ vars.NEWS_RSS_MARKET_LIMIT || '' }}
           LINKEDIN_RADAR_LIMIT: ${{ vars.LINKEDIN_RADAR_LIMIT || '' }}

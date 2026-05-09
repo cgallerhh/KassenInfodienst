@@ -67,11 +67,14 @@ MIN_TED_VALUE_EUR = 1_000_000
 MIN_RELEVANCE_SCORE = 3
 MAX_SCORING_ITEMS = 300
 MAX_NEWSLETTER_SOURCES = env_int("MAX_NEWSLETTER_SOURCES", 60)
+MIN_NEWSLETTER_CHARS = env_int("MIN_NEWSLETTER_CHARS", 14000)
+MAX_IMAGE_FETCHES = env_int("MAX_IMAGE_FETCHES", 24)
 LINKEDIN_QUERY_LIMIT = env_int("LINKEDIN_QUERY_LIMIT", 3)
 LINKEDIN_RADAR_LIMIT = env_int("LINKEDIN_RADAR_LIMIT", 50)
-LINKEDIN_POSTS_PER_ACCOUNT = env_int("LINKEDIN_POSTS_PER_ACCOUNT", 8)
-NEWS_RSS_MARKET_LIMIT = env_int("NEWS_RSS_MARKET_LIMIT", 6)
+LINKEDIN_POSTS_PER_ACCOUNT = env_int("LINKEDIN_POSTS_PER_ACCOUNT", 10)
+NEWS_RSS_MARKET_LIMIT = env_int("NEWS_RSS_MARKET_LIMIT", 10)
 ENABLE_LINKEDIN_VOYAGER = os.environ.get("ENABLE_LINKEDIN_VOYAGER", "").lower() in {"1", "true", "yes"}
+ENABLE_SOURCE_IMAGES = os.environ.get("ENABLE_SOURCE_IMAGES", "true").lower() in {"1", "true", "yes"}
 
 RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5-nano"
 SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5-nano"
@@ -135,6 +138,9 @@ DEDICATED_GKV_PROVIDERS = {
     "bitmarck", "itsc", "aok systems", "gkv informatik", "gevko", "davaso", "spectrumk",
 }
 
+IMAGE_CACHE: dict[str, str] = {}
+IMAGE_FETCH_COUNT = 0
+
 
 def normalize_item_key(text: str) -> str:
     """Stabiler Dedupe-Key für Rohmeldungen über mehrere Suchquellen hinweg."""
@@ -189,6 +195,144 @@ def clean_visible_source_text(text: str) -> str:
     cleaned = cleaned.replace("Vertriebsrelevanz:", "Einordnung:")
     cleaned = re.sub(r"\s{2,}", " ", cleaned)
     return cleaned.strip()
+
+
+def _looks_like_image_url(url: str) -> bool:
+    """Erkennt Bild-URLs aus RSS, LinkedIn-CDNs und typischen Preview-Feldern."""
+    if not url.startswith(("http://", "https://")):
+        return False
+    clean = url.split("?")[0].lower()
+    return (
+        clean.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif"))
+        or "media.licdn.com" in url
+        or "/dms/image/" in url
+        or "image" in clean
+    )
+
+
+def find_image_in_obj(value) -> str:
+    """Findet ein Inhaltsbild in verschachtelten API-Antworten, ohne Avatare zu bevorzugen."""
+    skip_keys = {"avatar", "profile", "profilepicture", "logo", "icon", "author"}
+    preferred_keys = (
+        "image", "imageUrl", "image_url", "thumbnail", "thumbnailUrl",
+        "thumbnail_url", "previewImage", "preview_image", "media", "mediaUrl",
+        "contentImages", "images",
+    )
+
+    if isinstance(value, dict):
+        for key in preferred_keys:
+            if key in value:
+                found = find_image_in_obj(value.get(key))
+                if found:
+                    return found
+        for key, child in value.items():
+            key_l = str(key).lower()
+            if any(skip in key_l for skip in skip_keys):
+                continue
+            found = find_image_in_obj(child)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = find_image_in_obj(child)
+            if found:
+                return found
+    elif isinstance(value, str):
+        for url in re.findall(r"https?://[^\s)>\]}\"']+", value):
+            url = url.rstrip(".,;")
+            if _looks_like_image_url(url):
+                return url
+    return ""
+
+
+def extract_page_image(url: str) -> str:
+    """Holt ein og:image vom Artikel, begrenzt damit der Scheduled Run nicht festläuft."""
+    global IMAGE_FETCH_COUNT
+
+    clean = (url or "").strip()
+    if not ENABLE_SOURCE_IMAGES or not clean:
+        return ""
+    if clean in IMAGE_CACHE:
+        return IMAGE_CACHE[clean]
+    if IMAGE_FETCH_COUNT >= MAX_IMAGE_FETCHES:
+        return ""
+
+    IMAGE_FETCH_COUNT += 1
+    image_url = ""
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+    }
+    try:
+        from bs4 import BeautifulSoup
+
+        response = req.get(clean, headers=headers, timeout=5, allow_redirects=True)
+        if response.ok and "text/html" in response.headers.get("content-type", ""):
+            soup = BeautifulSoup(response.text[:250000], "html.parser")
+            for attrs in (
+                {"property": "og:image"},
+                {"name": "twitter:image"},
+                {"property": "twitter:image"},
+            ):
+                meta = soup.find("meta", attrs=attrs)
+                if meta:
+                    candidate = (meta.get("content") or "").strip()
+                    if _looks_like_image_url(candidate):
+                        image_url = candidate
+                        break
+    except Exception:
+        image_url = ""
+
+    IMAGE_CACHE[clean] = image_url
+    return image_url
+
+
+def add_image_marker(line: str, image_url: str) -> str:
+    """Haengt ein Markdown-Bild als verwertbares Rohsignal an eine Quellenzeile."""
+    image_url = (image_url or "").strip()
+    if not image_url:
+        return line
+    return f"{line}\n    Bild: ![Vorschaubild]({image_url})"
+
+
+def collect_visuals_from_research(all_research: str, limit: int = 6) -> list[tuple[str, str]]:
+    """Extrahiert Bild-Markdown aus Rohdaten fuer einen deterministischen Fallback."""
+    visuals: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    previous_text = ""
+    for raw_line in all_research.splitlines():
+        line = raw_line.strip()
+        for url in re.findall(r"!\[[^\]]*\]\((https?://[^)]+)\)", line):
+            if url in seen:
+                continue
+            seen.add(url)
+            label = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", previous_text or line)
+            label = re.sub(r"\s+", " ", re.sub(r"[*_`>#-]+", " ", label)).strip()
+            visuals.append((label[:120] or "Quelle aus dem Wochenbrief", url))
+            if len(visuals) >= limit:
+                return visuals
+        if line and not line.startswith("Bild:"):
+            previous_text = line
+    return visuals
+
+
+def ensure_visuals_in_summary(summary: str, all_research: str) -> str:
+    """Stellt sicher, dass die Mail nicht text-only bleibt, wenn Bildquellen vorhanden sind."""
+    if re.search(r"!\[[^\]]*\]\(https?://", summary or ""):
+        return summary
+    visuals = collect_visuals_from_research(all_research)
+    if not visuals:
+        return summary
+
+    lines = [summary.rstrip(), "", "## Bildsignale aus den Quellen", ""]
+    for label, url in visuals:
+        lines.append(f"![{label}]({url})")
+        lines.append(f"*{label}*")
+        lines.append("")
+    return "\n".join(lines).strip() + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +407,8 @@ WICHTIG:
 - Zielumfang 3500 bis 5000 Woerter, wenn genug Rohdaten vorhanden sind.
 - LinkedIn ist die Hauptquelle: Stimmen von Entscheidern und offiziellen Accounts
   nicht nur als Anhang nennen, sondern in die Story einbauen.
+- Wenn Rohdaten Bild-Markdown enthalten, 4 bis 6 passende Bilder als visuelle
+  Trenner/Quellenbilder uebernehmen. Bilder nicht als rohe URL ausschreiben.
 - Branchenstimmen nicht kaputtfiltern: Gute Health-IT-/KI-Einordnung ist relevant,
   auch wenn sie als Markttrend und nicht als Deal-Signal zu behandeln ist.
 - Abschnitte WEGLASSEN wenn nichts Relevantes gefunden.
@@ -700,7 +846,7 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                 line += f" → {source_link(post_url, 'LinkedIn')}"
             else:
                 line += " _(Quelle: LinkedIn via LinkdAPI, keine Post-URL geliefert)_"
-            findings.append(line)
+            findings.append(add_image_marker(line, find_image_in_obj(post)))
 
         if findings:
             all_findings.append(f"**{kasse['short']}** (LinkedIn):")
@@ -1001,7 +1147,8 @@ def scrape_linkedin_rss(kassen: list[dict], tage: int) -> str:
                 resp = req.get(rss_url, headers=HEADERS, timeout=10)
                 if resp.status_code == 200:
                     for title, link in _parse_rss_xml(resp.text, cutoff)[:5]:
-                        company_findings.append(f"  - {title} → {source_link(link)}")
+                        line = f"  - {title} → {source_link(link)}"
+                        company_findings.append(add_image_marker(line, extract_page_image(link)))
             except Exception:
                 pass
 
@@ -1072,7 +1219,8 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                 if not any(term in title_lower for term in GKV_CONTEXT_TERMS):
                     continue
                 seen_links.add(link)
-                market_findings.append(f"  - {title} → {source_link(link)}")
+                line = f"  - {title} → {source_link(link)}"
+                market_findings.append(add_image_marker(line, extract_page_image(link)))
                 if len(market_findings) >= NEWS_RSS_MARKET_LIMIT:
                     break
         except Exception as e:
@@ -1129,7 +1277,8 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                     if not any(term in title_lower for term in include_terms):
                         continue
                     seen_links.add(link)
-                    findings.append(f"  - {title} → {source_link(link)}")
+                    line = f"  - {title} → {source_link(link)}"
+                    findings.append(add_image_marker(line, extract_page_image(link)))
                     if len(findings) >= 4:
                         break
             except Exception as e:
@@ -1238,6 +1387,9 @@ def _extract_candidate_items(all_research: str) -> list[dict]:
             continue
         if line.startswith("**") and line.endswith(":"):
             current_kasse = line.strip("*: ")
+            continue
+        if line.startswith("Bild:") and items:
+            items[-1]["text"] = f"{items[-1]['text']}\n{line}"
             continue
         if line.startswith(("- ", "* ", "  - ")) or re.match(r"^\d+\.\s+", line):
             text = re.sub(r"^\d+\.\s+", "", line).lstrip("-* ").strip()
@@ -1536,10 +1688,10 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
         "- Bei RSS-Treffern die Originalquelle öffnen und entscheiden, ob daraus ein konkreter Account-Anlass entsteht.",
         "- Für TK, DAK, BARMER und große BKKen gezielt prüfen, ob die Signale zu Servicecenter, Automatisierung, Portal, Daten oder IT-Betrieb passen.",
         "- Wiederkehrende Autoren aus LinkedIn in eine Beobachtungsliste übernehmen.",
-        "- Falls GPT-5.4 nach OpenAI-Org-Verifizierung verfügbar wird, den Newsletter wieder automatisch redaktionell ausformulieren lassen.",
+        "- Bild- und Messepostings nicht als Selbstzweck lesen: dahinter stecken haeufig Ansprechpartner, Themenbudgets und laufende Projektfenster.",
         "",
     ])
-    return "\n".join(lines)
+    return ensure_visuals_in_summary("\n".join(lines), all_research)
 
 
 
@@ -1579,6 +1731,7 @@ BEREITS LETZTE WOCHE BERICHTET (NICHT WIEDERHOLEN):
   Sonst weglassen.
 """
 
+    source_count = len(_extract_candidate_items(all_research))
     prompt = f"""Du bist Chefredakteur des GKV-Branchenbriefs "KassenInfodienst".
 Erstelle einen woechentlichen Branchenueberblick "GKV & IT" aus den Rohdaten unten.
 Ziel: 3500 bis 5000 Woerter bzw. ein grosser Newsletter, wenn die Rohdaten genug Stoff liefern.
@@ -1609,6 +1762,8 @@ Unter jeder Rubrik stehen einzelne Einträge:
 5 bis 7 Sätze Fließtext. Erst konkret sagen, was passiert ist. Dann einordnen:
 Warum ist das für GKV, Health IT, KI, Automatisierung oder Vertrieb relevant?
 Am Ende ein kurzer Gesprächsanlass. Quellenlink direkt im Text einbauen.
+Wenn Rohdaten eine Zeile "Bild: ![Vorschaubild](...)" enthalten, uebernimm 4 bis 6
+passende Bilder in den Bericht. Bilder gehoeren unter den Absatz, zu dem sie passen.
 
 ## Was jetzt zu tun ist
 5 bis 8 konkrete Gespraechsanlaesse als kurze Bulletpoints, keine nummerierten Karten.
@@ -1621,6 +1776,7 @@ REGELN:
 - Keine Platzhalterlinks wie "(LinkedIn)", "(Quelle)", "(LinkedIn Quelle)" oder "(DAZ Quelle)".
 - Keine rohen Volltext-URLs im sichtbaren Text. Immer Markdown-Link mit kurzem Label:
   [LinkedIn](URL), [Quelle](URL), [DAZ](URL), [Google News](URL).
+- Interne Rohdaten-IDs wie Q01, Q02, item_17 nicht sichtbar ausgeben.
 - Nur echte URLs aus den Rohdaten als Link nutzen. Wenn keine URL vorhanden ist:
   "LinkedIn via LinkdAPI, keine URL geliefert" schreiben.
 - Keine Meldung als harte Tatsache aufnehmen, wenn Datum, Quelle oder konkreter Anlass unklar bleibt;
@@ -1633,7 +1789,7 @@ REGELN:
 - Thought-Leadership-Signale nicht wegwerfen: Wenn eine anerkannte Branchenstimme
   Health IT, KI, Digital Health oder Versorgung einordnet, als Markttrend aufnehmen.
 - Dienstleister-Projektsignale sind wichtig, auch wenn sie nicht direkt von einer Kasse kommen
-- Zielumfang 3500 bis 5000 Woerter, aber nicht kuenstlich aufblasen
+- Zielumfang 3500 bis 5000 Woerter ernst nehmen. Bei {source_count} Quellen darf der Newsletter nicht kurz ausfallen.
 - Abschnitte ohne Daten: WEGLASSEN (kein "nicht verfügbar")
 
 Schreibe auf Deutsch."""
@@ -1642,20 +1798,63 @@ Schreibe auf Deutsch."""
         response = client.responses.create(
             model=NEWSLETTER_MODEL,
             instructions=SYSTEM_PROMPT,
-            max_output_tokens=7000,
+            max_output_tokens=9000,
             input=prompt,
         )
         result = response.output_text or ""
     else:
         completion = client.chat.completions.create(
             model=NEWSLETTER_MODEL,
-            max_completion_tokens=7000,
+            max_completion_tokens=9000,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
         )
         result = completion.choices[0].message.content or ""
+    result = ensure_visuals_in_summary(result, all_research)
+    if source_count >= 18 and len(result.strip()) < MIN_NEWSLETTER_CHARS:
+        print(
+            f"   ↪️  Newsletter wirkt noch zu kurz ({len(result.strip())} Zeichen) – erweitere redaktionell."
+        )
+        expansion_prompt = f"""Der folgende Newsletter-Entwurf ist fuer {source_count} Quellen zu kurz.
+Erweitere ihn zu einem echten Wochenbrief mit mehr Einordnung, mehr LinkedIn-Kontext,
+mehr Dienstleister-/Kassenbezug und konkreteren Gespraechsanlaessen.
+
+Wichtig:
+- Keine neuen Fakten erfinden.
+- Keine Dopplungen ergaenzen.
+- Quellenlinks aus den Rohdaten als kurze Markdown-Links einbetten.
+- Vorhandene Bilder beibehalten und bei passenden Rohdaten weitere Bilder uebernehmen.
+- Ziel: mindestens {MIN_NEWSLETTER_CHARS} Zeichen, aber sauber lesbar.
+
+ROHDATEN:
+{all_research[:45000]}
+
+ENTWURF:
+{result}
+
+Schreibe nur die verbesserte finale Fassung, ohne Meta-Kommentar."""
+        if NEWSLETTER_API == "responses":
+            response = client.responses.create(
+                model=NEWSLETTER_MODEL,
+                instructions=SYSTEM_PROMPT,
+                max_output_tokens=9000,
+                input=expansion_prompt,
+            )
+            expanded = response.output_text or ""
+        else:
+            completion = client.chat.completions.create(
+                model=NEWSLETTER_MODEL,
+                max_completion_tokens=9000,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": expansion_prompt},
+                ],
+            )
+            expanded = completion.choices[0].message.content or ""
+        if len(expanded.strip()) > len(result.strip()):
+            result = ensure_visuals_in_summary(expanded, all_research)
     print(result)
     return result
 
@@ -1818,6 +2017,25 @@ def build_html_email(report_content: str, today: date) -> str:
       padding-top: 20px;
     }}
 
+    .card img {{
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      max-height: 240px;
+      object-fit: cover;
+      border: 0;
+      margin: 10px 0 18px;
+      background: #F5F5F5;
+    }}
+
+    .card p em {{
+      display: block;
+      color: #777777;
+      font-size: 12px;
+      line-height: 1.45;
+      margin-top: -4px;
+    }}
+
     ul {{
       list-style: none;
       padding: 0;
@@ -1833,6 +2051,10 @@ def build_html_email(report_content: str, today: date) -> str:
     }}
     li:last-child {{
       border-bottom: none;
+    }}
+    li img {{
+      margin: 12px 0 8px;
+      max-height: 190px;
     }}
 
     a {{
