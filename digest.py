@@ -2873,12 +2873,27 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def normalize_kassen_filter(raw_values: list[str] | None) -> list[str]:
+    """Normalisiert --kassen aus Leerzeichen-, Komma- oder UI-Eingaben."""
+    if not raw_values:
+        return []
+
+    normalized: list[str] = []
+    for raw in raw_values:
+        for part in re.split(r"[,;\n]+", raw):
+            value = part.strip().strip("\"'")
+            if value:
+                normalized.append(value)
+    return normalized
+
+
 def filter_kassen(args: argparse.Namespace) -> list[dict]:
     """Filtert Kassen nach --kassen-Argument."""
-    if not args.kassen:
+    requested = normalize_kassen_filter(args.kassen)
+    if not requested:
         return KASSEN
 
-    filter_set = {k.upper() for k in args.kassen}
+    filter_set = {k.upper() for k in requested}
     result = [
         k for k in KASSEN
         if k["short"].upper() in filter_set
@@ -2889,11 +2904,44 @@ def filter_kassen(args: argparse.Namespace) -> list[dict]:
 
     if not result:
         print(
-            f"Fehler: Keine Kasse mit Kurzname {args.kassen!r} gefunden.\n"
+            f"Fehler: Keine Kasse mit Kurzname {requested!r} gefunden.\n"
             f"Verfügbare Kurznamen: {[k['short'] for k in KASSEN]}",
             file=sys.stderr,
         )
         sys.exit(1)
+
+    matched: set[str] = set()
+    for k in result:
+        short = k["short"].upper()
+        name = k["name"].upper()
+        if short in filter_set:
+            matched.add(short)
+        if name in filter_set:
+            matched.add(name)
+        short_words = {w.upper() for w in k["short"].split()}
+        if short_words and short_words.issubset(filter_set):
+            matched.update(short_words)
+    unknown = [
+        value for value in requested
+        if value.upper() not in matched
+    ]
+    observed = {
+        item["short"].upper()
+        for item in BEOBACHTETE_INSTITUTIONEN + BEOBACHTETE_ORGS + BEOBACHTETE_PERSONEN
+    }
+    ignored = [value for value in unknown if value.upper() not in observed]
+    observed_only = [value for value in unknown if value.upper() in observed]
+    if observed_only:
+        print(
+            "   ℹ️  Nicht als Kassenfilter genutzt, aber im Radar ohnehin enthalten: "
+            + ", ".join(observed_only),
+            file=sys.stderr,
+        )
+    if ignored:
+        print(
+            "   ⚠️  Unbekannte Kassenfilter ignoriert: " + ", ".join(ignored),
+            file=sys.stderr,
+        )
 
     return result
 
