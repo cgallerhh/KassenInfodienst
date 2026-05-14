@@ -111,6 +111,24 @@ NEWSLETTER_MODEL_CANDIDATES = [
 ]
 NEWSLETTER_API = "chat"
 
+MIN_SCORE_TOP = env_int("MIN_SCORE_TOP", 75)
+MIN_SCORE_KEEP = env_int("MIN_SCORE_KEEP", 60)
+MIN_SCORE_INTERNAL = env_int("MIN_SCORE_INTERNAL", 45)
+
+FILTER_REPORT: dict[str, int] = {}
+
+EXCLUDE_TOPIC_TERMS = {
+    "prävention", "praevention", "bewegung", "jugend", "schule", "schul", "kampagne",
+    "gewinnspiel", "gesundheitswoche", "aktionstag", "event", "messe", "award", "preis",
+    "glückwunsch", "glueckwunsch", "sommerfest", "netzwerktreffen", "follower", "likes"
+}
+
+LINKEDIN_ALLOWED_ROLES = {
+    "vorstand", "geschäftsführung", "geschaeftsfuehrung", "cio", "cdo", "cto", "bereichsleitung",
+    "leiter", "head of", "pressesprecher", "kommunikation", "politik", "regulierung"
+}
+
+
 GKV_CONTEXT_TERMS = {
     "gkv", "krankenkasse", "krankenkassen", "gesetzliche krankenversicherung",
     "versicherte", "versicherten", "versorgung", "leistungserbringer",
@@ -1788,8 +1806,23 @@ def _extract_candidate_items(all_research: str) -> list[dict]:
     return items
 
 
+def _prefilter_reason(text_blob: str, is_linkedin: bool) -> str:
+    if contains_any(text_blob, EXCLUDE_TOPIC_TERMS) and not contains_any(text_blob, STRATEGIC_TOPIC_TERMS):
+        return "Ausschluss: Praevention/Event/Kampagne ohne strategischen IT-Bezug"
+    if "landesvertretung" in text_blob and not contains_any(text_blob, STRATEGIC_TOPIC_TERMS):
+        return "Ausschluss: lokale Landesvertretung ohne bundesweite strategische Relevanz"
+    if is_linkedin and "follower" in text_blob:
+        return "Ausschluss: Follower-Zahl ist kein Relevanzkriterium"
+    return ""
+
+
+def _linkedin_role_ok(text_blob: str) -> bool:
+    return contains_any(text_blob, LINKEDIN_ALLOWED_ROLES) or contains_any(text_blob, DECISION_MAKER_TERMS)
+
+
 def score_research_items(client: openai.OpenAI, all_research: str) -> str:
     """Filtert Rohmeldungen per strukturierter Relevanzbewertung vor dem Newsletter."""
+    global FILTER_REPORT
     items = _extract_candidate_items(all_research)
     if not items:
         return ""
@@ -1882,10 +1915,12 @@ Rohmeldungen:
     fallback: list[str] = []
     dropped = 0
     seen_items: set[str] = set()
+    filter_stats = {"geprueft": len(items), "dedupliziert": 0, "verworfen": 0, "linkedin_verworfen": 0, "behalten": 0}
     for item in items:
         dedupe_key = normalize_item_key(item.get("text", ""))
         if dedupe_key in seen_items:
             dropped += 1
+            filter_stats["dedupliziert"] += 1
             continue
         seen_items.add(dedupe_key)
 
@@ -1893,71 +1928,57 @@ Rohmeldungen:
         category = str(decision.get("category") or item["section"])
         text_blob = f"{item.get('section', '')} {category} {item.get('text', '')}".lower()
         is_linkedin = "linkedin" in text_blob
-        is_rss = "rss" in text_blob
-        is_thought_leadership = any(term in text_blob for term in {
-            "matusiewicz", "health it", "health-it", "digital health",
-            "e-health", "ehealth", "gesundheitswesen", "ki im gesundheitswesen",
-        })
-        is_gkv_it_signal = (
-            any(term in text_blob for term in GKV_CONTEXT_TERMS)
-            and any(term in text_blob for term in {
-                "it", "digital", "software", "cloud", "ki", "automatisierung",
-                "cyber", "security", "portal", "servicecenter", "projekt",
-                "go-live", "rollout", "implementierung", "migration",
-                "ausschreibung", "vergabe", "zuschlag", "auftrag",
-                "daten", "plattform", "health", "gesundheitswesen",
-            })
-        )
-        has_decision = item["id"] in decisions
-        score = int(decision.get("score") or 0)
-        if (not has_decision or score == 0) and is_linkedin:
-            score = 3
-            category = "LinkedIn"
-            decision = {**decision, "keep": True, "sales_relevance": "LinkedIn-Signal fuer den Wochenradar; redaktionell einordnen statt wegwerfen."}
-        elif (not has_decision or score == 0) and is_thought_leadership:
-            score = 3
-            category = "Branchenstimme"
-            decision = {**decision, "keep": True, "sales_relevance": "Branchenstimme zu Health IT/KI; als Markttrend und Gespraechsanlass einordnen."}
-        elif (not has_decision or score == 0) and is_rss and is_gkv_it_signal:
-            score = 4
-            category = "News/RSS"
-            decision = {**decision, "keep": True, "sales_relevance": "RSS-Signal mit erkennbarem GKV-IT-Bezug; im Wochenbericht pruefen und knapp einordnen."}
 
-        keep_threshold = MIN_LINKEDIN_RELEVANCE_SCORE if is_linkedin else MIN_RELEVANCE_SCORE
-        keep = bool(decision.get("keep")) and score >= keep_threshold
-        if is_thought_leadership and score >= MIN_WEAK_SIGNAL_SCORE:
-            keep = True
+        pre_reason = _prefilter_reason(text_blob, is_linkedin)
+        if pre_reason:
+            dropped += 1
+            filter_stats["verworfen"] += 1
+            if is_linkedin:
+                filter_stats["linkedin_verworfen"] += 1
+            continue
+
+        if is_linkedin and (not _linkedin_role_ok(text_blob) or not contains_any(text_blob, STRATEGIC_TOPIC_TERMS | GKV_CONTEXT_TERMS)):
+            dropped += 1
+            filter_stats["verworfen"] += 1
+            filter_stats["linkedin_verworfen"] += 1
+            continue
+
+        score_5 = int(decision.get("score") or 0)
+        final_score = max(0, min(100, score_5 * 20))
+        keep = bool(decision.get("keep")) and final_score >= MIN_SCORE_KEEP
+        if final_score >= MIN_SCORE_TOP:
+            category = "Top-Thema"
+        elif final_score >= MIN_SCORE_KEEP:
+            category = category or "Kassenradar"
+        elif final_score >= MIN_SCORE_INTERNAL:
+            dropped += 1
+            filter_stats["verworfen"] += 1
+            continue
+        else:
+            keep = False
+
         if not keep:
             dropped += 1
-            reason = str(decision.get("exclude_reason") or "kein Grund angegeben").strip()
-            print(f"      verworfen {item['id']} Score {score}: {reason}", file=sys.stderr)
+            filter_stats["verworfen"] += 1
             continue
 
         relevance = str(decision.get("sales_relevance") or "").strip()
-        if is_low_signal_text(f"{item.get('text', '')}\n{relevance}\n{decision.get('exclude_reason', '')}"):
-            dropped += 1
-            print(f"      verworfen {item['id']} Score {score}: Bewertet als zu allgemein/ohne GKV-IT-Bezug", file=sys.stderr)
-            continue
-
         source_type = str(decision.get("source_type") or classify_source_label(item.get("text", ""))).strip()
-        criteria = decision.get("criteria") if isinstance(decision.get("criteria"), dict) else {}
-        criteria_text = ", ".join(f"{k}={v}" for k, v in criteria.items())
-        header_bits = [category, source_type]
+        header_bits = [category, source_type, f"Score={final_score}"]
         if item.get("kasse"):
             header_bits.append(item["kasse"])
         source_id = f"Q{len(kept) + len(fallback) + 1:02d}"
         title = " | ".join(header_bits)
-        visible_text = clean_visible_source_text(item["text"])
+        visible_text = clean_visible_source_text(item["text"]).replace("Follower", "")
         block = (
             f"### {source_id} | {title}\n"
             + visible_text
             + (f"\nEinordnung: {relevance}" if relevance else "")
         )
-        if is_linkedin and score <= 3:
-            fallback.append(block)
-        else:
-            kept.append(block)
+        kept.append(block)
+        filter_stats["behalten"] += 1
 
+    FILTER_REPORT = filter_stats
     print(f"   🧹 Relevanzfilter: {len(kept) + len(fallback)} behalten, {dropped} verworfen.")
     if not kept and not fallback:
         return ""
@@ -2317,6 +2338,21 @@ Schreibe nur die finale Fassung."""
     print(result)
     return result
 
+
+
+
+def build_filter_report_section() -> str:
+    if not FILTER_REPORT:
+        return ""
+    gepr = FILTER_REPORT.get("geprueft", 0)
+    verw = FILTER_REPORT.get("verworfen", 0) + FILTER_REPORT.get("dedupliziert", 0)
+    beh = FILTER_REPORT.get("behalten", 0)
+    signal = "hoch" if beh >= 10 else "normal" if beh >= 5 else "niedrig"
+    return (
+        "## Relevanz-Hinweis der Woche\n\n"
+        f"Diese Woche wurden {gepr} Quellen geprüft. {verw} wurden verworfen oder dedupliziert. "
+        f"{beh} Themen wurden aufgenommen. Signalstärke: {signal}.\n"
+    )
 
 def build_empty_summary(raw_highlights_count: int, today: date) -> str:
     """Erzeugt eine sichtbare, nicht-leere Mail, wenn der Relevanzfilter alles verwirft."""
@@ -3194,7 +3230,8 @@ def main() -> None:
         print("🧹 Bewerte Relevanz und filtere Rauschen ...")
         filtered_research = score_research_items(client, raw_research)
         if filtered_research.strip():
-            all_research = filtered_research
+            report_section = build_filter_report_section()
+            all_research = (report_section + "\n" + filtered_research).strip()
         else:
             print("   ⚠️  Filter ergab 0 Treffer – nutze Rohquellen als Beobachtungsradar statt Nullmeldung.")
             all_research = build_observation_radar(raw_research)
