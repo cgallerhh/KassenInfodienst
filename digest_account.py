@@ -180,24 +180,24 @@ def build_account_intelligence_fallback(all_research: str, today: date) -> str:
         ])
 
     lines.extend([
-        "## DAK-spezifische Relevanz",
+        "## Zielkassen-spezifische Relevanz",
         "",
         (
             "Auch wenn nicht jede Quelle direkt von der DAK kommt, sind Markt- und Institutionssignale "
-            "fuer den DAK-Blick verwertbar, wenn sie operative Fragen beruehren: ePA/TI-Umsetzung, "
+            "fuer die jeweilige Zielkasse verwertbar, wenn sie operative Fragen beruehren: ePA/TI-Umsetzung, "
             "Service- und Kontaktstrecken, Automatisierung, Informationssicherheit, Dienstleistersteuerung "
             "und die Anschlussfaehigkeit an zentrale GKV-Plattformen."
         ),
         "",
         (
-            "Fuer die naechste DAK-Ansprache sollte deshalb nicht die Veroeffentlichung selbst im Mittelpunkt "
+            "Fuer die naechste Ansprache der Zielkasse sollte deshalb nicht die Veroeffentlichung selbst im Mittelpunkt "
             "stehen, sondern die Frage: Wo entsteht intern Umsetzungsdruck, und welche Abhaengigkeiten "
             "bremsen operative Umsetzung?"
         ),
         "",
         "## Gespraechsanlaesse fuer diese Woche",
         "",
-        "- Wie bewertet die DAK die operative Umsetzbarkeit aktueller gematik-/TI-/ePA-Anforderungen?",
+        "- Wie bewertet die Zielkasse die operative Umsetzbarkeit aktueller gematik-/TI-/ePA-Anforderungen?",
         "- Welche Engpaesse liegen eher in Fachbereich, IT-Betrieb, Dienstleistersteuerung oder Prozessdesign?",
         "- Welche Service- oder Portalstrecken erzeugen noch manuelle Nacharbeit?",
         "- Wo sind BITMARCK-/ITSC-nahe Abhaengigkeiten fuer Roadmap, Betrieb oder Integration relevant?",
@@ -223,7 +223,7 @@ def generate_account_intelligence_summary(client: digest.openai.OpenAI, all_rese
 
     prompt = f"""Erstelle aus den Quellen ein Account-Intelligence-Briefing GKV.
 
-Zielaccount-Kontext: Wenn der Lauf nur eine Kasse betrifft, ist diese Kasse der primäre Account-Fokus. Bei DAK-Suchen die DAK-Perspektive explizit herausarbeiten, auch wenn Quellen von gematik, BITMARCK, ITSC, AOK Systems oder anderen Institutionen kommen.
+Zielaccount-Kontext: Wenn der Lauf nur eine Kasse betrifft, ist diese Kasse der primaere Account-Fokus. Bei Mehrkassen-Laeufen muessen die Implikationen je relevanter Kasse klar getrennt werden. Quellen von Institutionen und Dienstleistern (z. B. gematik, BITMARCK, ITSC, AOK Systems, BSI, GKV-Spitzenverband) immer auf die jeweils betroffenen Kassen beziehen.
 
 Quellenpaket:
 {source_pack[:52000]}
@@ -243,8 +243,8 @@ Pro wichtigem Signal ein Abschnitt mit:
 **Account-Relevanz**
 **Gespraechsanlass**
 
-## DAK-spezifische Relevanz
-Nur wenn DAK im Lauf oder in den Quellen vorkommt. Keine Behauptungen erfinden, sondern als Hypothese formulieren.
+## Zielkassen-spezifische Relevanz
+Nur fuer Kassen mit klarer Implikation im Lauf. Keine Behauptungen erfinden, sondern als Hypothese formulieren.
 
 ## Dienstleister- und IT-Landschaft
 BITMARCK, ITSC, AOK Systems, gematik, BSI und andere Institutionen nur aufnehmen, wenn daraus Umsetzungs-, Integrations-, Betriebs- oder Beratungsdruck folgt.
