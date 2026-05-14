@@ -213,6 +213,32 @@ LINKEDIN_NOISE_TERMS = {
     "kununu", "benefits", "work-life", "recruiting", "talent", "azubi",
 }
 
+LINKEDIN_HARD_EXCLUDE_TERMS = {
+    "zahnzusatzversicherung", "implantat geplant", "keramik statt standardfüllung",
+    "standardfuellung", "standardfüllung", "eigenanteile", "finanzflüsterer",
+    "finanzfluesterer", "lebenskostenoptimierer", "unabhängiger finanz",
+    "unabhaengiger finanz", "wingcopter", "taking care of the people behind the technology",
+    "university of kassel", "bewegungsbande", "cybermobbing", "jury unseres präventionsprojekts",
+    "jury unseres praeventionsprojekts", "hochschule für angewandte wissenschaften",
+    "hochschule fuer angewandte wissenschaften", "exkursion", "followers)", "follower)",
+}
+
+LINKEDIN_TRUSTED_MARKET_TERMS = {
+    "stefan schellberg", "andreas strausfeld", "dieter loewe", "dieter löwe",
+    "bitmarck", "itsc", "aok systems", "gkv informatik", "gematik", "bsi",
+    "gkv-spitzenverband", "bundesministerium fuer gesundheit", "bundesministerium für gesundheit",
+    "bmg", "vdek", "ikk e.v", "bkk dachverband", "aok-bundesverband",
+    "dak-gesundheit", "techniker krankenkasse", "barmer", "ikk classic",
+    "pressestelle", "unternehmenskommunikation", "cio", "cdo", "cto",
+}
+
+LINKEDIN_ACCOUNT_VALUE_TERMS = STRATEGIC_TOPIC_TERMS | {
+    "fusion", "fusionen", "zusammenschluss", "kooperation", "gemeinsames projekt",
+    "gemeinsame it", "plattformverbund", "verbund", "shared service", "shared services",
+    "kassen-it", "dienstleistersteuerung", "versorgungspfad", "versorgungsprogramm",
+    "selektivvertrag", "digitalstrategie", "kassenpolitik",
+}
+
 SOURCE_RELIABILITY_LABELS = {
     "Primärquelle": 5,
     "Pressemitteilung": 4,
@@ -333,7 +359,8 @@ def clean_visible_source_text(text: str) -> str:
     cleaned = re.sub(r"^#+\s*", "", cleaned)
     cleaned = re.sub(r"\bQ\d{2}\s*\|\s*", "", cleaned)
     cleaned = re.sub(r"\s*\|\s*Score\s+\d+\b", "", cleaned)
-    cleaned = re.sub(r"\*\*\s*\((LinkedIn|News/RSS|RSS)\)", r"** (\1)", cleaned)
+    cleaned = re.sub(r"\*\*\s*\((LinkedIn|News/RSS|RSS)\)", r" (\1)", cleaned)
+    cleaned = cleaned.replace("**", "")
     cleaned = cleaned.replace("Vertriebsrelevanz:", "Einordnung:")
     cleaned = re.sub(r"\s{2,}", " ", cleaned)
     return cleaned.strip()
@@ -625,7 +652,7 @@ def strip_source_noise(text: str) -> str:
         cleaned,
         flags=re.I,
     )
-    cleaned = re.sub(r"^[^:]{1,90}\s+\((LinkedIn|News/RSS|RSS)\)\s*", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"^[^:]{1,90}\s+\((LinkedIn|News/RSS|RSS)\)\s*:?\s*", "", cleaned, flags=re.I)
     cleaned = re.sub(r"^\[[0-9?.-]+\]\s*", "", cleaned)
     cleaned = re.sub(r"\bEinordnung:\s*", "", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" -*")
@@ -684,6 +711,10 @@ def build_editorial_source_items(all_research: str, limit: int | None = None) ->
         context = split_source_context(raw_text)[1]
         source_id = f"S{len(result) + 1:02d}"
         kind = source_kind(item, label, url)
+        if kind == "LinkedIn":
+            reject_reason = _linkedin_quality_reject_reason(f"{item.get('section', '')} {item.get('kasse', '')} {cleaned}")
+            if reject_reason:
+                continue
         org = clean_visible_source_text(item.get("kasse", "") or "")
         result.append({
             "id": source_id,
@@ -736,6 +767,13 @@ def newsletter_needs_repair(text: str, source_count: int = 0) -> bool:
         "Kuratierte Quellen",
         "Rohsignal",
         "Quellenradar",
+        "GKV-Markt**",
+        "TK**",
+        "DAK**",
+        "Warm-up fuer Account-Recherche",
+        "Zahnzusatzversicherung",
+        "WINGCOPTER",
+        "University of Kassel",
     )
     if any(marker in cleaned for marker in raw_markers):
         return True
@@ -1837,6 +1875,26 @@ def _linkedin_role_ok(text_blob: str) -> bool:
     return contains_any(text_blob, LINKEDIN_ALLOWED_ROLES) or contains_any(text_blob, DECISION_MAKER_TERMS)
 
 
+def _linkedin_quality_reject_reason(text_blob: str) -> str:
+    """Harte Nachfilterung, damit fachfremde LinkedIn-Treffer nicht ins Briefing gelangen."""
+    blob = text_blob.lower()
+    if contains_any(blob, LINKEDIN_HARD_EXCLUDE_TERMS):
+        return "LinkedIn fachfremd oder nur Consumer-/Event-/Follower-Signal"
+    if contains_any(blob, LINKEDIN_NOISE_TERMS) and not contains_any(blob, LINKEDIN_ACCOUNT_VALUE_TERMS):
+        return "LinkedIn HR/Event/Marketing ohne fachlichen GKV-IT-Wert"
+
+    trusted = contains_any(blob, LINKEDIN_TRUSTED_MARKET_TERMS)
+    has_account_value = contains_any(blob, LINKEDIN_ACCOUNT_VALUE_TERMS)
+    has_gkv_context = contains_any(blob, GKV_CONTEXT_TERMS)
+    role_ok = _linkedin_role_ok(blob)
+
+    if trusted and (has_account_value or has_gkv_context):
+        return ""
+    if role_ok and has_account_value and has_gkv_context:
+        return ""
+    return "LinkedIn ohne qualifizierte Top-Voice-/Kassen-/GKV-IT-Relevanz"
+
+
 def score_research_items(client: openai.OpenAI, all_research: str) -> str:
     """Filtert Rohmeldungen per strukturierter Relevanzbewertung vor dem Newsletter."""
     global FILTER_REPORT
@@ -1877,9 +1935,11 @@ Politik-/Regulatorik-Regel:
 
 LinkedIn-Regel:
 - Qualifizierte Top-Voice-Quelle, kein beliebiger Pressespiegel.
+- CEO/Geschaeftsfuehrung allein reicht nicht. Die Person oder Organisation muss aus Kasse, Verband, Politik, Institution, GKV-IT-Dienstleister oder klarer Health-IT-Landschaft kommen.
 - Bevorzugt behalten: Vorstand, Geschaeftsfuehrung, CEO, CIO, CDO, CTO, Bereichsleitung IT/Digitalisierung/Versorgung/Strategie, Pressestelle, offizielle Unternehmenskommunikation, relevante Verbandsspitzen und Institutionen.
 - Beispiele fuer besonders relevante Stimmen: Chef der DAK-Pressestelle, IKK-classic-CDO Stefan Schellberg, BITMARCK-CEO Andreas Strausfeld, ITSC-CEO Dieter Loewe.
 - LinkedIn behalten, wenn konkrete Aussage zu IT, Digitalisierung, Service-/Prozessmodernisierung, TI/ePA/eGK/gematik, Datenschutz, Informationssicherheit, Gesetzgebung, Beschaffung, Plattform/App/Portal, Versorgung, Kassenpolitik, Dienstleistersteuerung oder strategischer Marktbewegung vorliegt.
+- Hart ignorieren: Zahnzusatzversicherung, Implantat-/Keramikfüllungswerbung, Finanzberater-/Maklerposts, Consumer-Insurance-Vertrieb, Follower-Zahlen, Hochschul-/Präventionsprojekte ohne IT-/Kassenstrategie, Event-/Exkursionsposts, Wingcopter-/Benefits-/HR-Posts.
 - Ignorieren: Karrieremeldungen ohne Marktbezug, Event-Selfies ohne fachliche Aussage, Kultur-/Employer-Branding, generisches Sales-/Partner-Marketing, Recruiter, Sachbearbeiter, Teamleiter ohne strategische Aussage, Glueckwuensche, Likes, Reposts ohne eigene Einordnung.
 
 Dienstleister-/Institutionen-Regel:
@@ -1889,7 +1949,8 @@ Dienstleister-/Institutionen-Regel:
 Streng ausschließen:
 - allgemeine Beitragssatzmeldungen ohne IT-/Strategiewinkel
 - ePA-/TI-Pflichtthemen ohne konkreten Umsetzungs-, Anbieter-, Prozess- oder Kassenwinkel
-- generische Gesundheitsratgeber, Awards, Kampagnen oder Selbstlob ohne erkennbare Kassenpositionierung oder Marktbezug
+- generische Gesundheitsratgeber, Awards, Kampagnen, Präventions-/Bewegungsprojekte oder Selbstlob ohne erkennbare Kassenpositionierung, IT-/Servicefolge oder Marktbezug
+- fachfremde LinkedIn-Posts, die nur das Wort GKV nutzen, z.B. Zahnzusatzversicherung, Finanzvertrieb, Implantate, private Zusatzversicherung oder allgemeine Lebenshaltungskostenoptimierung
 - Pressemitteilungen ohne konkretes Projekt, Namen, Frist, Entscheidung, neues Ereignis oder verwertbare Kassenagenda
 - Ausschreibungen unter 1 Mio EUR oder ohne IT-/Strategie-/BPO-Bezug
 - alte oder undatierte Meldungen, wenn keine aktuelle Entwicklung erkennbar ist
@@ -1968,11 +2029,13 @@ Rohmeldungen:
                 filter_stats["linkedin_verworfen"] += 1
             continue
 
-        if is_linkedin and (not _linkedin_role_ok(text_blob) or not contains_any(text_blob, STRATEGIC_TOPIC_TERMS | GKV_CONTEXT_TERMS)):
-            dropped += 1
-            filter_stats["verworfen"] += 1
-            filter_stats["linkedin_verworfen"] += 1
-            continue
+        if is_linkedin:
+            linkedin_reject_reason = _linkedin_quality_reject_reason(text_blob)
+            if linkedin_reject_reason:
+                dropped += 1
+                filter_stats["verworfen"] += 1
+                filter_stats["linkedin_verworfen"] += 1
+                continue
 
         score_5 = int(decision.get("score") or 0)
         final_score = max(0, min(100, score_5 * 20))

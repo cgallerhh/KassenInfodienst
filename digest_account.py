@@ -96,9 +96,9 @@ def _account_hint(item: dict) -> str:
         )
     if item.get("kind") == "LinkedIn":
         return (
-            "LinkedIn ist hier kein Beleg fuer eine Opportunity, aber ein Signal aus dem Marktgespraech. "
-            "Relevant ist, dass eine Organisation, Rolle oder Prioritaet oeffentlich sichtbar wird. "
-            "Das eignet sich als Warm-up fuer Account-Recherche und Gespraechseinstieg."
+            "Relevant ist das nur bei qualifizierten Stimmen aus Kasse, Verband, Politik oder GKV-IT. "
+            "Der Wert liegt dann in sichtbarer Prioritaetensetzung: Strategie, IT-/Serviceagenda, "
+            "Regulatorik, Dienstleistersteuerung, Plattform- oder Versorgungslogik."
         )
     return (
         "Das Signal sollte als Account-Hypothese genutzt werden: Welche operativen Folgen entstehen "
