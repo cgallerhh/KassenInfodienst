@@ -18,13 +18,25 @@ Verwendung:
     python digest.py --tage 7            # Recherchezeitraum in Tagen (Standard: 7)
 """
 
-import openai
+from __future__ import annotations
+
+try:
+    import openai
+except ImportError:  # --demo soll auch ohne installierte Abhaengigkeiten laufen
+    openai = None
+
 import argparse
-import httpx
+try:
+    import httpx
+except ImportError:
+    httpx = None
 import json
 import os
 import re
-import requests as req
+try:
+    import requests as req
+except ImportError:
+    req = None
 import smtplib
 import sys
 import time
@@ -54,7 +66,7 @@ try:
 except ImportError:
     pass
 
-from kassen import KASSEN, BEOBACHTETE_ORGS, BEOBACHTETE_PERSONEN
+from kassen import KASSEN, BEOBACHTETE_INSTITUTIONEN, BEOBACHTETE_ORGS, BEOBACHTETE_PERSONEN
 
 BATCH_SIZE = 5          # Mehrere Accounts pro Web-Research-Call, damit Weekly unter dem Actions-Limit bleibt
 MAX_SEARCHES = 6        # Gezielte Suchen pro Batch
@@ -64,10 +76,13 @@ API_TIMEOUT = 75        # Timeout pro API-Call in Sekunden – bei Hänger schne
 LAST_WEEK_FILE = Path("last_week.md")   # Gedächtnis: was letzte Woche berichtet wurde
 REPORTS_DIR = Path("reports")
 MIN_TED_VALUE_EUR = 1_000_000
-MIN_RELEVANCE_SCORE = 3
+MIN_RELEVANCE_SCORE = env_int("MIN_RELEVANCE_SCORE", 4)
+MIN_LINKEDIN_RELEVANCE_SCORE = env_int("MIN_LINKEDIN_RELEVANCE_SCORE", 4)
+MIN_WEAK_SIGNAL_SCORE = env_int("MIN_WEAK_SIGNAL_SCORE", 3)
 MAX_SCORING_ITEMS = 300
 MAX_NEWSLETTER_SOURCES = env_int("MAX_NEWSLETTER_SOURCES", 60)
 MIN_NEWSLETTER_CHARS = env_int("MIN_NEWSLETTER_CHARS", 14000)
+NEWSLETTER_TARGET_WORDS = env_int("NEWSLETTER_TARGET_WORDS", 4000)
 MAX_IMAGE_FETCHES = env_int("MAX_IMAGE_FETCHES", 24)
 LINKEDIN_QUERY_LIMIT = env_int("LINKEDIN_QUERY_LIMIT", 3)
 LINKEDIN_RADAR_LIMIT = env_int("LINKEDIN_RADAR_LIMIT", 50)
@@ -103,6 +118,8 @@ GKV_CONTEXT_TERMS = {
     "kkh", "sbk", "hkk", "bitmarck", "itsc", "gesundheitswesen",
     "healthcare", "health-it", "health it", "digital health", "e-health",
     "gesundheits-it", "krankenversicherung", "sozialversicherung",
+    "bmg", "gkv-spitzenverband", "gematik", "bsi", "aok-bundesverband",
+    "vdek", "bkk dachverband", "ikk e.v.", "datenschutz", "regulatorik",
 }
 
 LINKEDIN_MARKET_QUERIES = [
@@ -138,6 +155,111 @@ NEWS_RSS_MARKET_QUERIES = [
 DEDICATED_GKV_PROVIDERS = {
     "bitmarck", "itsc", "aok systems", "gkv informatik", "gevko", "davaso", "spectrumk",
 }
+
+DECISION_MAKER_TERMS = {
+    "vorstand", "vorständin", "vorstandsvorsitz", "ceo", "cio", "cto", "cdo",
+    "cco", "coo", "cfo", "chief", "geschäftsführer", "geschäftsführerin",
+    "vorsitzender", "vorsitzende", "hauptgeschäftsführer", "praesident", "präsident",
+    "geschäftsbereichsleiter", "leiter geschäftsbereich", "bereichsleiter",
+    "bereichsleitung", "head of", "it-leiter", "digitalisierungsleiter",
+    "director", "direktor", "direktorin", "leitung digital", "leitung it",
+    "leitung versorgung", "leitung strategie", "leitung finanzen", "pressesprecher",
+    "pressesprecherin", "unternehmenskommunikation", "kommunikation", "sprecher",
+}
+
+NON_DECISION_TERMS = {
+    "sachbearbeiter", "kundenberater", "kundenservice", "recruiter", "recruiting",
+    "talent acquisition", "praktikant", "werkstudent", "student", "azubi",
+    "auszubild", "beraterin kunden", "berater kunden", "sales manager",
+    "account executive", "vertrieb", "business development manager",
+}
+
+STRATEGIC_TOPIC_TERMS = {
+    "ki ", "künstliche intelligenz", "automatisierung", "digitalisierung",
+    "software", "cloud", "plattform", " api ", "daten", "system", "it-",
+    "cyber", "security", "sicherheit", "informationssicherheit", "b3s", "nis2",
+    "kritis", "c5", "portal", "app", "online", "service", "servicecenter",
+    "kontaktcenter", "omnichannel", "prozess", "prozessoptimierung", "innovation",
+    "strategie", "transformation", "projekt", "kooperation", "go-live", "golive",
+    "rollout", "einführung", "implementierung", "migration", "zuschlag",
+    "auftrag", "livegang", "release", "epa", "e-pa", "ti ", "egk", "vsdm",
+    "telematik", "gematik", "datenschutz", "regulatorik", "gesetz",
+    "referentenentwurf", "stellungnahme", "ausschreibung", "vergabe", "beschaffung",
+    "interoperabilität", "interoperabilitaet", "diga", "e-rezept",
+}
+
+LINKEDIN_NOISE_TERMS = {
+    "wir stellen ein", "karriere", "job", "jobs", "bewerben", "team event",
+    "sommerfest", "after work", "glückwunsch", "congratulations", "messebesuch",
+    "event-selfie", "danke für den austausch", "toller austausch", "employer branding",
+    "kununu", "benefits", "work-life", "recruiting", "talent", "azubi",
+}
+
+SOURCE_RELIABILITY_LABELS = {
+    "Primärquelle": 5,
+    "Pressemitteilung": 4,
+    "Verbands-/Institutionsseite": 5,
+    "LinkedIn-Signal": 3,
+    "Medienbericht": 3,
+    "Sonstiger Hinweis": 2,
+}
+
+
+def contains_any(value: str, terms: set[str]) -> bool:
+    return any(term in value.lower() for term in terms)
+
+
+def classify_source_label(text: str) -> str:
+    blob = text.lower()
+    if "linkedin" in blob:
+        return "LinkedIn-Signal"
+    if any(term in blob for term in ("bundesgesundheitsministerium", "gkv-spitzenverband", "gematik", "bsi", "vdek", "bkk dachverband", "aok-bundesverband", "ikkev")):
+        return "Verbands-/Institutionsseite"
+    if any(term in blob for term in ("pressemitteilung", "pressestelle", "presse")):
+        return "Pressemitteilung"
+    if any(term in blob for term in ("site:", "quelle", "artikel")):
+        return "Medienbericht"
+    return "Sonstiger Hinweis"
+
+
+def evaluate_linkedin_signal(org: dict, actor_name: str, actor_title: str, text: str, reactions: int) -> tuple[bool, str]:
+    """Deterministischer LinkedIn-Vorfilter fuer Entscheider- und Institutionssignale."""
+    text_lower = text.lower()
+    actor_blob = f"{actor_name} {actor_title}".lower()
+    org_type = org.get("type", "")
+    is_provider = org_type == "provider"
+    is_institution = org_type == "institution"
+    is_market = org_type == "market"
+    is_influencer = org_type == "influencer"
+    is_decision_maker = contains_any(actor_title, DECISION_MAKER_TERMS)
+    is_non_decision = contains_any(actor_title, NON_DECISION_TERMS)
+    is_official_or_target = (
+        org.get("short", "").lower() in actor_blob
+        or org.get("name", "").lower() in actor_blob
+        or org.get("linkedin_search", "").lower() in actor_blob
+        or org.get("short", "").lower() in text_lower
+        or org.get("name", "").lower() in text_lower
+    )
+    has_topic = contains_any(text_lower, STRATEGIC_TOPIC_TERMS)
+    has_gkv_context = contains_any(text_lower, GKV_CONTEXT_TERMS)
+    is_noise = contains_any(text_lower, LINKEDIN_NOISE_TERMS)
+    is_viral = reactions >= 30
+
+    if is_non_decision and not is_official_or_target:
+        return False, "Nicht-Entscheiderrolle"
+    if is_noise and not has_topic:
+        return False, "Karriere/Event/Marketing ohne strategischen Bezug"
+    if is_provider and not has_gkv_context:
+        return False, "Dienstleisterpost ohne GKV-Kontext"
+    if is_institution and not (has_topic or has_gkv_context):
+        return False, "Institutionenpost ohne GKV-/IT-/Regulatorikbezug"
+    if is_market and not (is_decision_maker or is_official_or_target or has_gkv_context):
+        return False, "Marktpost ohne belastbaren GKV-Bezug"
+    if not (is_decision_maker or is_official_or_target or is_influencer):
+        return False, "keine Entscheider- oder offizielle Quelle"
+    if not (has_topic or is_viral or (is_decision_maker and has_gkv_context)):
+        return False, "kein belastbares IT-, Digital-, Regulatorik- oder Marktsignal"
+    return True, "qualifiziertes LinkedIn-Signal"
 
 IMAGE_CACHE: dict[str, str] = {}
 IMAGE_FETCH_COUNT = 0
@@ -613,88 +735,44 @@ def newsletter_needs_repair(text: str, source_count: int = 0) -> bool:
 # System-Prompt (einmalig, gecacht)
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """Du bist Redakteur eines wöchentlichen Branchen-Newsletters für den GKV-Markt,
-im Stil einer persoenlichen Wochenzeitung: quellenstark, gut gegliedert,
-ausfuehrlich genug zum Verstehen und pointiert genug fuer den Vertrieb.
-Dein Newsletter ist die Story hinter der Story, aber ohne Rohdatenmüll.
+SYSTEM_PROMPT = """Du bist Redakteur des persoenlichen Wochenbriefs "KassenInfodienst".
+Der Dienst richtet sich an einen erfahrenen Account Manager im GKV-/Health-IT-Markt.
+Er soll kein allgemeiner Pressespiegel und keine Linksammlung sein, sondern ein
+entscheidungsorientiertes Branchenbriefing: Was ist passiert, warum ist es relevant,
+welcher IT-/Digital-/Regulatorik-/Beschaffungsdruck entsteht und was ist daraus
+fuer Account Management, Business Development und Networking abzuleiten?
 
-Dein Leser ist ein erfahrener Account Manager im B2B-IT-Vertrieb an gesetzliche Krankenkassen.
-Er braucht keine Grundlageninfos – er kennt den Markt. Er will einen woechentlichen
-Branchenueberblick zu GKV & IT: Entscheiderstimmen, Dienstleister-Projekte,
-Digitalisierung, Betrieb, Automatisierung, KI im Gesundheitswesen und konkrete
-Gespraechsanlaesse.
+Der bestehende KassenInfodienst bleibt erkennbar: Markdown-Rubriken, pointierte
+redaktionelle Sprache, Quellenlinks, keine leeren Platzhalter. Der Stil ist
+professionell, praezise, meinungsstark, aber nicht boulevardesk.
 
-TONALITÄT:
-- Zeitung statt Rohdatenliste: klare Überschrift, Lead, Zusammenfassung, Einordnung
-- meinungsstark, aber nicht boulevardesk
-- Personalisierung: Wenn eine Entwicklung ein Gesicht hat, Namen und Rolle nennen
-- Keine internen Scores, keine Debug-Wörter, keine Formulierungen wie "ohne konkreten Kontext"
-- Wenn nichts Relevantes gefunden: Kasse WEGLASSEN statt leere Platzhalter
+RELEVANZKERN:
+- IT-Vorhaben, Plattformen, Apps, Portale, Service- und Prozessmodernisierung
+- TI, ePA, eGK, VSDM, gematik, Datenschutz, Informationssicherheit, B3S, NIS2,
+  KRITIS, C5 und regulatorischer Umsetzungsdruck
+- Gesetzesvorhaben, Stellungnahmen, Fristen, politische Gross- und Konfliktthemen
+- Vorstands-, CIO-, CDO-, CTO-, Bereichsleitungs- und Pressestellen-Aussagen
+- Projektbedarf, Modernisierungsdruck, Ausschreibungsnaehe, Dienstleisterwechsel,
+  Personalaufbau in IT-/Digitalrollen oder strategische Bewegungen
+- Marktsignale von Kassen, BMG, GKV-Spitzenverband, gematik, BSI, AOK-BV, vdek,
+  IKK e.V., BKK Dachverband, BITMARCK, ITSC und vergleichbaren Akteuren
 
-WAS RELEVANT IST (nur darüber berichten):
-- 🔥 Personalwechsel: Vorstände, CFO/CCO/CDO/CIO, Bereichsleiter Digital/IT/Versorgung/Finanzen
-- 📣 LinkedIn-Entscheiderstimmen: Posts von Vorständen, CFO, CCO, CDO, CIO, COO,
-  Geschäftsführern, Bereichsleitern und offiziellen Kassen-/Dienstleister-Accounts
-  zu IT, Service, Strategie, Versorgung, Projekten, Kooperationen oder Transformation
-- 🧠 Branchenstimmen & Thought Leadership: substanzielle Posts von anerkannten
-  Health-IT-/Digital-Health-/KI-Stimmen, z. B. Prof. Dr. David Matusiewicz,
-  wenn sie Gesundheitswesen, Krankenkassen, Versorgung, KI, Plattformen,
-  Daten, Automatisierung, Regulierung oder digitale Transformation einordnen.
-  Diese Signale sind als Marktstimmung und Gespraechsanlass relevant, auch wenn
-  nicht jedes Mal eine einzelne Kasse genannt wird.
-- 🧩 Dienstleister & Projekte: Wer hat gerade GKV-Projekte geliefert, Go-lives gefeiert,
-  Rollouts abgeschlossen, Zuschläge erhalten oder neue Kassenkunden gewonnen?
-- 💎 Ausschreibungen (TED): EU-schwellenwertüberschreitende Vergaben der Kassen,
-  inkl. CPV-Code, Frist, Volumen (falls bekannt)
-- 📉 Personalabbau / Stellenstopps: Signal für Automatisierungsbedarf (weniger Leute, mehr Aufgaben)
-- 🤖 KI & Automatisierung: Konkrete Projekte (nicht "plant den Einsatz von KI"), sondern
-  "hat Chatbot live geschaltet", "automatisiert Antragsbearbeitung mit X"
-- 💬 Gossip & Gerüchte: Fusionsgerüchte, politische Konflikte, Kassen unter BaFin-Beobachtung,
-  Streit im Verwaltungsrat – alles was hinter den Kulissen passiert
+LINKEDIN NUR ALS QUALIFIZIERTE SIGNALQUELLE:
+Bevorzugt aufnehmen: Vorstand, Geschaeftsfuehrung, CIO, CDO, CTO, Bereichsleitung
+IT/Digitalisierung/Versorgung/Strategie, offizielle Kommunikation, Pressestellen,
+relevante Verbands- und Institutionsvertreter. Ignorieren: Sachbearbeiter,
+Recruiter, generische Vertriebsrollen, Event-Selfies, Karrieremeldungen ohne
+Marktbezug, Employer Branding, reine Glueckwuensche, Likes/Reposts ohne eigene
+Einordnung oder generisches Sales-/Partner-Marketing.
 
-WAS NICHT RELEVANT IST (ignorieren):
-- LinkedIn-Posts von Sachbearbeitern, Recruitern, Juniorrollen, Praktikanten oder reinem HR-Marketing
-- ePA-Pflichteinführung ohne konkreten IT-, Umsetzungs-, Anbieter- oder Kassenwinkel
-- Allgemeine Digitalisierungs-Absichtserklärungen ohne konkretes Projekt
-- Beitragssatzänderungen im normalen Rahmen (±0,1-0,3%)
-- Generische Pressemitteilungen ohne Nachrichtenwert
-- Ausschreibungen ohne erkennbaren IT-/Strategie-Bezug (z. B. Bürobedarf, Reinigung)
-
-OUTPUT-FORMAT:
-Schreibe keinen Report pro Kasse mit leeren Abschnitten. Das Ziel ist ein
-durchgaengiger Wochenbericht mit eingebetteten Quellenlinks, aehnlich einem
-redaktionellen Newsletter:
-
-1. "In dieser Ausgabe" - 5 bis 8 Orientierungspunkte mit Links.
-2. Redaktionelle Rubriken wie in einer Wochenzeitung: Kassen/Koepfe,
-   LinkedIn-Leitstimmen, Dienstleister, Ausschreibungen, Regulierung und Markttrends.
-3. Nicht jede Quelle einzeln abhandeln. Erst Themen clustern, dann 6 bis 9
-   redaktionelle Storys schreiben. Mehrere LinkedIn-Posts zum selben Thema
-   gehoeren in EINEN Abschnitt.
-4. Pro Story: pointierte Überschrift, Bild falls vorhanden, 3 bis 6 Absätze
-   Fließtext mit Zusammenfassung, Einordnung, Vertriebsrelevanz und Quellenlink
-   als "Zum Artikel" oder "Zum LinkedIn-Beitrag".
-5. "Was jetzt zu tun ist" - 5 bis 8 konkrete Gespraechsanlaesse und naechste Schritte.
-
-WICHTIG:
-- Zielumfang 3500 bis 5000 Woerter, wenn genug Rohdaten vorhanden sind.
-- LinkedIn ist die Hauptquelle: Stimmen von Entscheidern und offiziellen Accounts
-  nicht nur als Anhang nennen, sondern in die Story einbauen.
-- Der Newsletter soll mehr Fließtext als Überschriften haben. Keine Liste aus
-  Einzelkarten. Keine Überschrift aus Rohdaten kopieren.
-- Wenn Rohdaten Bild-Markdown enthalten, 4 bis 6 passende Bilder als visuelle
-  Trenner/Quellenbilder uebernehmen. Bilder nicht als rohe URL ausschreiben.
-- Branchenstimmen nicht kaputtfiltern: Gute Health-IT-/KI-Einordnung ist relevant,
-  auch wenn sie als Markttrend und nicht als Deal-Signal zu behandeln ist.
-  Aber: Einzelne Influencer duerfen maximal 1-2 Meldungen dominieren. Der Newsletter
-  ist keine Personenchronik, sondern eine GKV-Wochenuebersicht.
-- Abschnitte WEGLASSEN wenn nichts Relevantes gefunden.
-- Kein "Keine Informationen gefunden" - einfach weglassen.
-- Keine Labels wie "Kurzfassung:" oder "Einordnung:" in der finalen Fassung.
-  Die Einordnung muss als normaler Absatz geschrieben werden.
-- Immer Quellen/Links nennen wo verfuegbar, am besten direkt im Satz.
-- Schreibe auf Deutsch."""
-
+REDAKTIONELLE REGELN:
+- Qualitaet vor Menge. Schwache Wochen nicht kuenstlich aufblasen.
+- Keine KI-Floskeln, keine Allgemeinplaetze, keine Debug-/Score-Artefakte.
+- Weiche Beobachtungen ausdruecklich als Signal, Hinweis oder Interpretation markieren.
+- Jede relevante Meldung mit Quelle, Datum/Zeitraum und belastbarer Einordnung verbinden.
+- Wenn nichts Relevantes vorliegt: lieber weglassen als Platzhalter schreiben.
+- Sprache: Deutsch, professionell, persoenlich verwertbar, entscheidungsorientiert.
+"""
 
 # ---------------------------------------------------------------------------
 # TED-Ausschreibungen (EU-Vergabeplattform, kostenlos, kein API-Key nötig)
@@ -1094,6 +1172,16 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             )
             is_viral = reactions >= 20
             is_branchenthema = any(k in text_lower for k in THEMEN_BRANCHE)
+
+            qualified, drop_reason = evaluate_linkedin_signal(kasse, actor_name, actor_title, text, reactions)
+            if not qualified and not (is_influencer and is_branchenthema):
+                if "Kontext" in drop_reason or "GKV" in drop_reason:
+                    dropped_no_context += 1
+                elif "Thema" in drop_reason or "Signal" in drop_reason:
+                    dropped_no_topic += 1
+                else:
+                    dropped_non_decision += 1
+                continue
 
             if is_non_decision:
                 dropped_non_decision += 1
@@ -1521,6 +1609,11 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                 '(Projekt OR Go-live OR Rollout OR Implementierung OR Migration OR Zuschlag OR Auftrag OR Kunde) '
                 f'after:{after_date}'
             )]
+        elif kasse.get("type") == "institution":
+            queries = kasse.get("news_queries") or [
+                f'"{company}" (GKV OR Krankenkasse OR ePA OR TI OR gematik OR Datenschutz OR NIS2 OR KRITIS OR Digitalisierung OR Gesetz OR Stellungnahme) after:{after_date}'
+            ]
+            queries = [f"{query} after:{after_date}" if "after:" not in query else query for query in queries]
         elif kasse.get("type") == "influencer":
             queries = kasse.get("news_queries") or [
                 f'"{company}" (KI OR Digitalisierung OR "Health IT" OR "Digital Health" OR Gesundheitswesen) after:{after_date}'
@@ -1551,7 +1644,7 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                         continue
                     if any(term in title_lower for term in exclude_terms):
                         continue
-                    if kasse.get("type") == "provider" and not any(term in title_lower for term in GKV_CONTEXT_TERMS):
+                    if kasse.get("type") in {"provider", "institution"} and not any(term in title_lower for term in GKV_CONTEXT_TERMS | include_terms):
                         continue
                     if not any(term in title_lower for term in include_terms):
                         continue
@@ -1702,36 +1795,38 @@ def score_research_items(client: openai.OpenAI, all_research: str) -> str:
         return ""
 
     scoring_prompt = f"""Bewerte Rohmeldungen für den KassenInfodienst.
-Ziel: woechentlicher Branchenueberblick "GKV & IT" fuer einen erfahrenen B2B-IT-Vertriebler.
+Ziel: persoenliches woechentliches GKV-/Health-IT-Briefing fuer einen erfahrenen Account Manager.
+Kein Pressespiegel, keine Linkliste, kein Rauschen.
 
-Score 5 = unmittelbare Vertriebschance oder starkes strategisches Signal.
-Score 4 = klar relevant, konkret, belegt, mit IT-/Automatisierungs-/Organisationsbezug.
-Score 3 = wichtiges Branchen-/LinkedIn-/Dienstleister-/Thought-Leadership-Signal,
-auch wenn noch kein harter Deal erkennbar ist.
+Bewerte jede Meldung intern nach sechs Kriterien mit 1-5 Punkten:
+1. Strategische Relevanz fuer GKV, IT, Digitalisierung, Regulatorik oder Marktbewegung
+2. Entscheidungsebene der Quelle
+3. Belastbarkeit der Quelle
+4. Handlungswert fuer Account Management / Business Development
+5. Neuigkeitswert im Recherchezeitraum
+6. Bezug zu Zielkonten, Institutionen oder GKV-nahen Dienstleistern
+
+Gesamtscore:
+Score 5 = starkes strategisches Signal oder unmittelbarer Account-/Opportunity-Anlass.
+Score 4 = klar relevant, belegt, aktuell, mit IT-/Digital-/Regulatorik-/Beschaffungsbezug.
+Score 3 = schwaches, aber plausibles Marktsignal; nur behalten, wenn mehrere Indizien oder klare Entscheiderquelle.
 Score 1-2 = Rauschen.
 
 LinkedIn-Regel:
-- LinkedIn-Posts mit Kassen-/BITMARCK-/ITSC-/Health-IT-/Digital-Health-Bezug ab Score 3 behalten,
-  wenn sie Digital-, IT-, KI-, Daten-, Service-, Organisations-, Personal-, Strategie-
-  oder Projektbezug haben.
-- Entscheiderposts von CFO, CCO, CDO, CIO, COO, CEO, Vorstaenden, Geschaeftsfuehrern,
-  Bereichsleitern und offiziellen Kassen-/Dienstleister-Accounts sind ausdruecklich relevant.
-- Posts von anerkannten Branchenstimmen wie Prof. Dr. David Matusiewicz behalten, wenn sie
-  Health IT, KI im Gesundheitswesen, Digital Health, Versorgung, Krankenkassen,
-  Regulierung, Daten, Plattformen oder Transformation einordnen. Diese Posts als
-  "Markttrend" oder "Gespraechsanlass" bewerten, nicht als harte Vertriebschance.
-- Posts von Sachbearbeitern, Recruitern, Juniorrollen und reinem HR-Marketing sind Rauschen.
+- Nur qualifizierte Signalquelle, kein eigener Pressespiegel.
+- Bevorzugt behalten: Vorstand, Geschaeftsfuehrung, CIO, CDO, CTO, Bereichsleitung IT/Digitalisierung/Versorgung/Strategie, Pressestelle, offizielle Unternehmenskommunikation, relevante Verbandsspitzen und Institutionen.
+- LinkedIn nur behalten, wenn konkrete Aussage zu IT, Digitalisierung, Service-/Prozessmodernisierung, TI/ePA/eGK/gematik, Datenschutz, Informationssicherheit, Gesetzgebung, Beschaffung, Plattform/App/Portal, Versorgung oder strategischer Marktbewegung vorliegt.
+- Ignorieren: Karrieremeldungen ohne Marktbezug, Event-Selfies, Kultur-/Employer-Branding, generisches Sales-/Partner-Marketing, Recruiter, Sachbearbeiter, Teamleiter ohne strategische Aussage, Glueckwuensche, Likes, Reposts ohne eigene Einordnung.
 
-Dienstleister-Regel:
-- Behalte Hinweise auf gelieferte GKV-Projekte, Go-lives, Rollouts, Implementierungen,
-  Zuschlaege, neue Kassenkunden, Kooperationen oder Betriebs-/Service-Erfolge.
+Dienstleister-/Institutionen-Regel:
+- Behalte Hinweise auf GKV-Projekte, Go-lives, Rollouts, Implementierungen, Zuschlaege, neue Kassenkunden, Betriebs-/Service-Erfolge, regulatorische Fristen und offiziellen Umsetzungsdruck.
+- BMG, GKV-Spitzenverband, gematik, BSI, AOK-Bundesverband, vdek, IKK e.V., BKK Dachverband, BITMARCK und ITSC sind wichtig, wenn daraus Handlungsdruck fuer Kassen, Dienstleister oder IT-Landschaften entsteht.
 
 Streng ausschließen:
-- allgemeine Beitragssatzmeldungen
-- ePA-Pflicht oder gesetzliche Pflichtthemen nur ausschliessen, wenn kein IT-/Umsetzungs-/
-  Anbieter-/Kassenwinkel erkennbar ist
-- Prävention, Gesundheitsratgeber, Awards, Kampagnen, allgemeines Selbstlob
-- Pressemitteilungen ohne konkretes Projekt, Namen, Frist, Volumen oder neues Ereignis
+- allgemeine Beitragssatzmeldungen ohne IT-/Strategiewinkel
+- ePA-/TI-Pflichtthemen ohne konkreten Umsetzungs-, Anbieter-, Prozess- oder Kassenwinkel
+- Praevention, Gesundheitsratgeber, Awards, Kampagnen, allgemeines Selbstlob
+- Pressemitteilungen ohne konkretes Projekt, Namen, Frist, Volumen, neue Entscheidung oder neues Ereignis
 - Ausschreibungen unter 1 Mio EUR oder ohne IT-/Strategie-/BPO-Bezug
 - alte oder undatierte Meldungen, wenn keine aktuelle Entwicklung erkennbar ist
 
@@ -1741,9 +1836,18 @@ Antworte als JSON-Objekt:
     {{
       "id": "item_1",
       "score": 1,
-      "category": "LinkedIn|Personal|Ausschreibung|Automatisierung|Flurfunk|Sonstiges",
+      "category": "Management|Top-Thema|Kassenradar|Institutionen/Politik|IT/Digital/Beschaffung|LinkedIn|Marktsignal|Quelle",
       "keep": false,
-      "sales_relevance": "kurz",
+      "criteria": {{
+        "strategic_relevance": 1,
+        "decision_level": 1,
+        "source_reliability": 1,
+        "account_value": 1,
+        "novelty": 1,
+        "target_account_fit": 1
+      }},
+      "source_type": "Primärquelle|Pressemitteilung|Verbands-/Institutionsseite|LinkedIn-Signal|Medienbericht|Sonstiger Hinweis",
+      "sales_relevance": "kurz und konkret",
       "exclude_reason": "kurz, leer wenn keep=true"
     }}
   ]
@@ -1819,8 +1923,10 @@ Rohmeldungen:
             category = "News/RSS"
             decision = {**decision, "keep": True, "sales_relevance": "RSS-Signal mit erkennbarem GKV-IT-Bezug; im Wochenbericht pruefen und knapp einordnen."}
 
-        keep_threshold = 2 if is_linkedin else MIN_RELEVANCE_SCORE
-        keep = (bool(decision.get("keep")) or is_linkedin or is_thought_leadership) and score >= keep_threshold
+        keep_threshold = MIN_LINKEDIN_RELEVANCE_SCORE if is_linkedin else MIN_RELEVANCE_SCORE
+        keep = bool(decision.get("keep")) and score >= keep_threshold
+        if is_thought_leadership and score >= MIN_WEAK_SIGNAL_SCORE:
+            keep = True
         if not keep:
             dropped += 1
             reason = str(decision.get("exclude_reason") or "kein Grund angegeben").strip()
@@ -1833,7 +1939,10 @@ Rohmeldungen:
             print(f"      verworfen {item['id']} Score {score}: Bewertet als zu allgemein/ohne GKV-IT-Bezug", file=sys.stderr)
             continue
 
-        header_bits = [category]
+        source_type = str(decision.get("source_type") or classify_source_label(item.get("text", ""))).strip()
+        criteria = decision.get("criteria") if isinstance(decision.get("criteria"), dict) else {}
+        criteria_text = ", ".join(f"{k}={v}" for k, v in criteria.items())
+        header_bits = [category, source_type]
         if item.get("kasse"):
             header_bits.append(item["kasse"])
         source_id = f"Q{len(kept) + len(fallback) + 1:02d}"
@@ -1944,34 +2053,34 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
         return lines
 
     lines: list[str] = [
-        "## In dieser Ausgabe",
+        "## Management Summary",
         "",
         *issue_teasers,
         "",
-        "## Wochenlage",
+        "## Top-Themen der Woche",
         "",
         (
             f"Der automatische Lauf hat {len(items)} relevante Quellen aus LinkedIn, News/RSS und Marktbeobachtung "
             "verdichtet. Dieser fallbackbasierte Bericht ist bewusst quellenorientiert: Er zeigt die wichtigsten Signale, "
-            "ordnet sie für GKV & IT ein und verweist direkt auf die Originalquellen."
+            "ordnet sie fuer GKV & IT ein und verweist direkt auf die Originalquellen."
         ),
         "",
     ]
 
-    lines.append("## Wichtigste Signale")
+    lines.append("## IT-, Digital- und Beschaffungssignale")
     for item in items[:10]:
         lines.extend(article_block(item))
         lines.append("")
 
     if len(items) > 10:
-        lines.append("## Weitere Quellen im Radar")
+        lines.append("## Quellenuebersicht")
         for item in items[10:MAX_NEWSLETTER_SOURCES]:
             source_link_text = f" [{item['kind']}]({item['url']})" if item["url"] else f" ({item['kind']})"
             lines.append(f"- **{item['org']}:** {item['headline']} - {item['text'][:180].rstrip()}...{source_link_text}")
         lines.append("")
 
     lines.extend([
-        "## Was jetzt zu tun ist",
+        "## Relevanz fuer mich / Account-Management-Briefing",
         "",
         "- LinkedIn-Beiträge nicht nach Lautstärke, sondern nach Rolle, Organisation und konkretem GKV-/IT-Bezug priorisieren.",
         "- RSS- und Fachpressequellen öffnen: Entscheidend ist, ob hinter der Meldung ein Vorhaben, Anbieterwechsel, Rollout oder Budgetfenster liegt.",
@@ -2027,45 +2136,45 @@ BEREITS LETZTE WOCHE BERICHTET (NICHT WIEDERHOLEN):
 
     prompt = f"""Du bist Chefredakteur des GKV-Branchenbriefs "KassenInfodienst".
 Erstelle einen woechentlichen Branchenueberblick "GKV & IT" aus den Rohdaten unten.
-Ziel: 3500 bis 5000 Woerter bzw. ein grosser Newsletter, wenn die Rohdaten genug Stoff liefern.
-Der Leser moechte LinkedIn nicht haendisch durchklicken. Verdichte deshalb viele
-LinkedIn-Signale zu einem lesbaren, laufenden Wochenbericht mit eingebetteten Quellenlinks.
-Wichtig: Der Newsletter soll nicht nur harte Kassenmeldungen berichten, sondern auch
-relevante Branchenstimmen zu Health IT, KI, Digital Health, Daten, Plattformen,
-Regulierung und Versorgung als Markttrend einordnen. Prof. Dr. David Matusiewicz
-und aehnliche Stimmen sind relevant, wenn ihre Posts einen Health-IT-/KI-/Digitalisierungsbezug haben.
+Ziel: ungefaehr {NEWSLETTER_TARGET_WORDS} Woerter, wenn die Rohdaten genug Stoff liefern; schwache Wochen nicht kuenstlich aufblasen.
+Der Leser moechte LinkedIn nicht haendisch durchklicken. Verdichte qualifizierte
+LinkedIn-Signale zu einem lesbaren Wochenbericht mit eingebetteten Quellenlinks.
+LinkedIn ist aber nur Signalquelle: keine irrelevanten Einzelposts, keine Event-/HR-/Sales-Beitraege.
 
 SAUBERES QUELLENPAKET DIESER WOCHE:
 {source_pack[:55000]}
 {last_week_block}
 FORMAT:
 
-## In dieser Ausgabe
-5 bis 8 kurze Bulletpoints. Jeder Punkt ist ein echter Teaser mit direktem Quellenlink.
+Nutze die bestehende Markdown-Struktur des KassenInfodienstes. Ergaenze Rubriken nur, wenn Daten vorhanden sind.
+Zielumfang: ungefaehr {NEWSLETTER_TARGET_WORDS} Woerter, aber schwache Wochen nicht aufblaehen.
 
-Danach folgen redaktionelle Zeitungsrubriken, z.B.:
-## Kassen und Köpfe
-## LinkedIn-Leitstimmen
-## Dienstleister und Projekte
-## Vergaben und Ausschreibungen
-## Regulierung und Markt
+## Management Summary
+Maximal 8 bis 10 zentrale Punkte. Jeder Punkt: Was ist passiert? Warum relevant? Was bedeutet es fuer GKV-IT, Markt, Kunden oder Accounts?
 
-Wichtig: Nicht pro Quelle einen eigenen Kurzartikel schreiben. Erst die Quellen
-zu 6 bis 9 Wochenstorys clustern. Mehrere LinkedIn-Posts zu BITMARCK, DAK,
-KI, Servicecenter, Daten/Analytics oder Versorgung gehoeren jeweils in einen
-gemeinsamen Abschnitt.
+## Top-Themen der Woche
+Die wichtigsten 3 bis 6 Themen als redaktionelle Einordnung. Nicht nur referieren: Treiber, betroffene Kassen/Institutionen, IT-/Digital-/Umsetzungsfolgen, Risiken/Chancen und konkrete Gespraechsanlaesse herausarbeiten.
 
-Unter jeder Rubrik stehen redaktionelle Storys:
-### Kurze, pointierte Überschrift
-3 bis 6 Absätze Fließtext. Erst konkret zusammenfassen, was passiert ist.
-Dann einordnen: Warum ist das für GKV, Health IT, KI, Automatisierung,
-Versorgung, Dienstleister oder Vertrieb relevant? Danach ein kurzer Gesprächsanlass.
-Quellenlink als sichtbarer Abschluss: [Zum Artikel](URL) oder [Zum LinkedIn-Beitrag](URL).
-Wenn Rohdaten eine Zeile "Bild: ![Vorschaubild](...)" enthalten, uebernimm 4 bis 6
-passende Bilder in den Bericht. Bilder gehoeren unter den Absatz, zu dem sie passen.
+## Kassenradar
+Nur relevante Kassen aufnehmen, besonders SBK, IKK classic, hkk, AOK-System, BARMER, TK, DAK-Gesundheit, BKK-/IKK-Umfeld und Ersatzkassen. Pro Kasse: Veroeffentlichung/Signal, Quelle/Person, Themenfokus, Bedeutung fuer IT/Digitalisierung/Service/Versorgung/Betrieb/Beschaffung und moeglicher Gespraechsanlass.
 
-## Was jetzt zu tun ist
-5 bis 8 konkrete Gespraechsanlaesse als kurze Bulletpoints, keine nummerierten Karten.
+## Institutionen- und Politikradar
+BMG, GKV-Spitzenverband, gematik, BSI, Datenschutzaufsicht, AOK-BV, vdek, IKK e.V., BKK Dachverband, BITMARCK, ITSC und vergleichbare Akteure. Fokus: Gesetz, Stellungnahme, Frist, regulatorisches Risiko, Umsetzungsdruck, Auswirkungen auf Kassen, Dienstleister und IT-Landschaften.
+
+## IT-, Digital- und Beschaffungssignale
+Neue IT-Vorhaben, App-/Portal-/Plattformmodernisierung, Cloud/Infrastruktur/RZ/Managed Services, Informationssicherheit, ePA/TI/eGK/VSDM/gematik, Ausschreibungsnaehe, IT-Personalaufbau, Partner- oder Dienstleistersignale.
+
+## LinkedIn-Entscheidersignale
+Nur relevante Stimmen. Je Signal: Person, Rolle, Organisation, Thema, Kernaussage, warum relevant, moegliche Interpretation und Belastbarkeit. Keine irrelevanten Einzelposts.
+
+## Marktsignale und schwache Hinweise
+Keine Geruechte behaupten. Nur Muster, Beobachtungen oder indirekte Hinweise, die aus mehreren Quellen oder plausiblen oeffentlichen Signalen ableitbar sind. Jeden Punkt klar als Hinweis, Signal oder Interpretation kennzeichnen.
+
+## Relevanz fuer mich / Account-Management-Briefing
+5 bis 10 konkrete Punkte: merken, beobachtete Kunden/Institutionen, Gespraechsanlaesse, moegliche Opportunities, aktive Kundenthemen, Networking-/Positionierungsrelevanz.
+
+## Quellenuebersicht
+Die wichtigsten Quellen transparent gruppieren: Primaerquellen, Pressemitteilungen, Verbands-/Institutionsseiten, LinkedIn-Signale, Medienberichte, sonstige Hinweise. Kurze Links, keine rohen Volltext-URLs.
 
 REGELN:
 - KEINEN Titel ausgeben – Header kommt automatisch
@@ -2094,7 +2203,7 @@ REGELN:
   Health IT, KI, Digital Health oder Versorgung einordnet, als Markttrend aufnehmen.
   Einzelne Personen duerfen aber maximal 1-2 Meldungen bekommen; nicht eine Person dominieren lassen.
 - Dienstleister-Projektsignale sind wichtig, auch wenn sie nicht direkt von einer Kasse kommen
-- Zielumfang 3500 bis 5000 Woerter ernst nehmen. Bei {source_count} Quellen darf der Newsletter nicht kurz ausfallen.
+- Zielumfang von ungefaehr {NEWSLETTER_TARGET_WORDS} Woertern ernst nehmen, wenn die Quellenlage traegt. Bei {source_count} Quellen darf der Newsletter nicht kurz ausfallen; bei schwacher Quellenlage lieber kompakt bleiben.
 - Der Newsletter soll deutlich mehr Lesetext als Überschriften enthalten.
 - Abschnitte ohne Daten: WEGLASSEN (kein "nicht verfügbar")
 
@@ -2622,6 +2731,11 @@ def parse_args() -> argparse.Namespace:
         help="Executive Summary überspringen",
     )
     parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Beispielausgabe mit Dummy-Daten erzeugen, ohne API-Keys oder E-Mail-Versand.",
+    )
+    parser.add_argument(
         "--email",
         action="store_true",
         help="Bericht nach Fertigstellung per E-Mail senden (Gmail SMTP)",
@@ -2781,15 +2895,129 @@ def choose_newsletter_model(client: openai.OpenAI, available: list[str], configu
 def make_report_header(today: date, tage: int, kassen: list[dict]) -> str:
     period_start = (today - timedelta(days=tage)).strftime("%d.%m.%Y")
     period_end = today.strftime("%d.%m.%Y")
-    kassen_namen = ", ".join(k["short"] for k in kassen)
+    monate = [
+        "Januar", "Februar", "Maerz", "April", "Mai", "Juni",
+        "Juli", "August", "September", "Oktober", "November", "Dezember",
+    ]
+    date_label = f"{today.day}. {monate[today.month - 1]} {today.year}"
 
     kw = today.isocalendar()[1]
     return f"""# KassenInfodienst | KW {kw}
 
-*{today.strftime("%d. %B %Y")} · {len(kassen)} Kassen · Recherchezeitraum {period_start} – {period_end}*
+*{date_label} · {len(kassen)} Kassen · Recherchezeitraum {period_start} – {period_end}*
 
 ---
 
+"""
+
+
+def build_demo_summary(today: date) -> str:
+    """Erzeugt eine Beispielausgabe fuer Layout- und Redaktionsprüfung ohne externe Quellen."""
+    return f"""## Management Summary
+
+- **gematik/ePA bleibt der operative Taktgeber:** Der Dummy-Hinweis zeigt, wie regulatorischer Umsetzungsdruck in konkrete Portal-, Prozess- und Integrationsfragen uebersetzt wird.
+- **SBK und hkk stehen exemplarisch fuer Service-Modernisierung:** Beide Signale sind als Gespraechsanlass fuer App-, Portal- und Prozessautomatisierung formuliert, nicht als gesicherte Ausschreibung.
+- **BITMARCK/ITSC bleiben Infrastruktur-Sensoren:** Dienstleisterkommunikation wird nicht als Selbstzweck aufgenommen, sondern nur wenn sie Rueckschluesse auf Betrieb, Plattformen oder Kassenbedarf erlaubt.
+- **LinkedIn wird streng kuratiert:** Nur Entscheider- oder offizielle Stimmen mit Digital-, IT-, Regulatorik- oder Umsetzungsbezug erscheinen im Briefing.
+
+## Top-Themen der Woche
+
+### ePA-Umsetzung wird zum Integrations- und Service-Thema
+
+Ein fiktives gematik-/BMG-Signal zur ePA zeigt, wie der Dienst kuenftig politische Pflichtkommunikation von operativ relevanten IT-Folgen trennt. Eine reine Erinnerung an gesetzliche Fristen wuerde nicht reichen. Relevant wird das Thema erst, wenn daraus Handlungsdruck fuer Authentifizierung, Frontend-Kommunikation, Callcenter-Entlastung, Versichertenprozesse oder Schnittstellen entsteht.
+
+Fuer Account Management ist der Gespraechsanlass klar: Welche Kassen haben die ePA-Kommunikation nur formal vorbereitet, und wo entstehen Folgefragen in Portal, App, CRM, Wissensmanagement oder Vorgangsbearbeitung?
+
+### Service- und Prozessmodernisierung als Kassenradar-Signal
+
+Das Dummy-Signal zur SBK steht fuer eine Kasse, die digitale Servicequalitaet nicht nur kommunikativ, sondern als Prozessmodernisierung adressiert. Im fertigen Wochenbrief wuerde nur aufgenommen, was durch Quelle, Rolle und konkreten Anlass belastbar ist. Allgemeine Imagekommunikation faellt heraus.
+
+Die hkk dient als Beispiel fuer ein schwaches, aber plausibles Marktsignal: Wenn mehrere oeffentliche Hinweise in Richtung Effizienz, digitale Services und IT-Rollen zeigen, darf das als Interpretation erscheinen, aber nicht als gesicherte Tatsache.
+
+## Kassenradar
+
+### SBK
+
+**Signal:** Offizielle oder Entscheiderkommunikation zu digitalem Service, Portal/App oder Versichertenprozessen.
+
+**Bedeutung:** Potenzieller Bedarf bei Frontend, Prozessautomatisierung, CRM, Wissensmanagement und kanaluebergreifender Servicefuehrung.
+
+**Gespraechsanlass:** Welche digitalen Kontaktstrecken verursachen noch manuelle Nacharbeit?
+
+### hkk
+
+**Signal:** Hinweise auf Effizienz, Servicequalitaet oder Digitalrollen.
+
+**Bedeutung:** Als einzelnes Signal nur vorsichtig verwenden; bei mehreren Quellen kann daraus ein Modernisierungshinweis werden.
+
+**Gespraechsanlass:** Prozesslandkarte, Automatisierungspotenzial und aktuelle Prioritaeten im Kundenservice abfragen.
+
+## Institutionen- und Politikradar
+
+### gematik / BMG
+
+Regulatorische Signale werden nur aufgenommen, wenn sie konkrete Folgen fuer Kassen-IT, Dienstleistersteuerung oder Umsetzungsplanung haben. Fristen, Spezifikationen und offizielle Stellungnahmen sind Primarquellen mit hoher Belastbarkeit; reine Sekundaerkommentare sind niedriger zu gewichten.
+
+### BSI / Datenschutzaufsicht
+
+Informationssicherheit wird als eigenes Suchfeld behandelt: NIS2, KRITIS, B3S, C5, Datenschutz und BSI-Hinweise koennen direkten Modernisierungsdruck fuer Betrieb, Cloud, Governance und Dienstleistermanagement ausloesen.
+
+## IT-, Digital- und Beschaffungssignale
+
+- **App/Portal:** relevant bei Go-live, Relaunch, konkreter Roadmap, Nutzerprozess oder Dienstleisterhinweis.
+- **Cloud/Betrieb:** relevant bei RZ-, Managed-Service-, Security- oder Migrationsbezug.
+- **ePA/TI/eGK/VSDM:** relevant bei konkretem Umsetzungs-, Integrations- oder Kommunikationsbedarf.
+- **Ausschreibungsnaehe:** relevant bei TED, Vergabeportalen, Stellenaufbau, Dienstleisterwechsel oder offizieller Projektkommunikation.
+
+## LinkedIn-Entscheidersignale
+
+### Beispielsignal: CIO/CDO oder offizielle Kommunikation
+
+**Person/Rolle/Organisation:** Dummy-Entscheider, CIO/CDO oder Pressestelle einer Kasse.
+
+**Thema:** Plattform-, Service- oder Prozessmodernisierung.
+
+**Kernaussage:** Ein belastbares LinkedIn-Signal wird nur aufgenommen, wenn es eine konkrete strategische Aussage enthaelt.
+
+**Warum relevant:** Entscheiderkommunikation kann frueh zeigen, welche Themen intern Prioritaet bekommen.
+
+**Belastbarkeit:** Mittel bis hoch, wenn Person/Rolle eindeutig und Inhalt konkret ist; niedrig bei Reposts, Eventbildern oder Marketingfloskeln.
+
+## Marktsignale und schwache Hinweise
+
+**Signal:** Mehrere Kassen sprechen in kurzer Zeit ueber Servicequalitaet und digitale Kontaktstrecken.
+
+**Interpretation:** Das kann auf Druck in Kundenservice, Automatisierung und Frontend-Prozessen hindeuten. Es ist keine Ausschreibung und keine gesicherte Budgetaussage.
+
+**Hinweis:** Stellenanzeigen fuer IT, Data, Security oder Prozessmanagement koennen Modernisierungsdruck anzeigen, muessen aber mit weiteren Quellen abgeglichen werden.
+
+## Relevanz fuer mich / Account-Management-Briefing
+
+- SBK, hkk und IKK classic weiter differenziert beobachten: echte Projektkommunikation vor Imagekommunikation.
+- Bei ePA/TI nicht ueber Pflicht reden, sondern ueber konkrete Prozessfolgen: App, Portal, Authentifizierung, Kontaktcenter, Wissensmanagement.
+- BITMARCK und ITSC als Sensoren fuer Plattform-, Betriebs- und Rolloutthemen im Blick behalten.
+- BSI-/NIS2-/KRITIS-Signale aktiv in Gespraechen mit IT- und Betriebsverantwortlichen platzieren.
+- LinkedIn-Entscheidersignale als Warm-up nutzen, aber vor Kundengespraechen immer mit Primaerquelle oder zweitem Signal absichern.
+
+## Quellenuebersicht
+
+**Primaerquellen**
+- Dummy: gematik/BMG-Frist- oder Spezifikationshinweis
+
+**Pressemitteilungen**
+- Dummy: Kassenmeldung zu digitalem Service
+
+**Verbands-/Institutionsseiten**
+- Dummy: BSI-/GKV-SV-/vdek-Hinweis zu Regulierung oder Umsetzung
+
+**LinkedIn-Signale**
+- Dummy: Entscheiderpost mit Rolle, Organisation und konkretem Thema
+
+**Medienberichte**
+- Dummy: Fachmedienbericht mit Health-IT-Bezug
+
+**Sonstige Hinweise**
+- Dummy: Stellenanzeigen-/Dienstleistermuster als vorsichtig markierte Interpretation
 """
 
 
@@ -2797,6 +3025,29 @@ def main() -> None:
     global RESEARCH_MODEL, SCORING_MODEL, NEWSLETTER_MODEL, NEWSLETTER_API
 
     args = parse_args()
+
+    if args.demo:
+        today = date.today()
+        kassen = filter_kassen(args)
+        REPORTS_DIR.mkdir(exist_ok=True)
+        output_path = Path(args.output) if args.output else REPORTS_DIR / "demo_personal_briefing.md"
+        output_path.write_text(make_report_header(today, args.tage, kassen) + build_demo_summary(today), encoding="utf-8")
+        print(f"✅ Demo-Briefing gespeichert: {output_path}")
+        return
+
+    missing_packages = []
+    if openai is None:
+        missing_packages.append("openai")
+    if httpx is None:
+        missing_packages.append("httpx")
+    if req is None:
+        missing_packages.append("requests")
+    if missing_packages:
+        print(
+            "Fehler: Python-Paket(e) fehlen: " + ", ".join(missing_packages) + ". Tipp: pip install -r requirements.txt",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     api_key = normalize_openai_api_key(os.environ.get("OPENAI_API_KEY"))
     if not api_key:
@@ -2827,6 +3078,7 @@ def main() -> None:
     print(f"   Ausgabe:   {output_path}")
     print()
 
+    institution_targets = BEOBACHTETE_INSTITUTIONEN
     personen_targets = BEOBACHTETE_PERSONEN if ENABLE_PERSONEN_RADAR else []
     if not ENABLE_PERSONEN_RADAR and BEOBACHTETE_PERSONEN:
         print("👥 Personen-Radar übersprungen (ENABLE_PERSONEN_RADAR nicht gesetzt; vermeidet Personen-Übergewicht).")
@@ -2845,7 +3097,7 @@ def main() -> None:
 
     # Schneller Scheduled-Standard: deterministische News-RSS-Suche statt OpenAI Web Search.
     print("📰 News-RSS abrufen ...")
-    news_data = scrape_news_rss(kassen + BEOBACHTETE_ORGS + personen_targets, args.tage)
+    news_data = scrape_news_rss(kassen + institution_targets + BEOBACHTETE_ORGS + personen_targets, args.tage)
     if news_data:
         news_count = news_data.count("\n  - ")
         print(f"   ✅ {news_count} News-RSS-Treffer gesammelt.")
@@ -2857,7 +3109,7 @@ def main() -> None:
 
     # Optional: OpenAI Web Search. Für Cron standardmäßig aus, weil es bei allen Kassen
     # zu langsam/fragil ist. Bei Bedarf ENABLE_OPENAI_WEB_RESEARCH=true setzen.
-    research_targets = kassen + BEOBACHTETE_ORGS + personen_targets
+    research_targets = kassen + institution_targets + BEOBACHTETE_ORGS + personen_targets
     if ENABLE_OPENAI_WEB_RESEARCH:
         batches = [research_targets[i : i + BATCH_SIZE] for i in range(0, len(research_targets), BATCH_SIZE)]
 
@@ -2870,7 +3122,7 @@ def main() -> None:
                 try:
                     research = research_batch(client, batch, args.tage)
                     break
-                except (httpx.TimeoutException, httpx.ReadTimeout) as e:
+                except ((httpx.TimeoutException, httpx.ReadTimeout) if httpx else TimeoutError) as e:
                     print(f"   ⏰ Timeout (Versuch {attempt}) – überspringe", file=sys.stderr)
                     research = ""
                     break
@@ -2900,7 +3152,7 @@ def main() -> None:
 
     # LinkedIn-Posts scrapen: LinkdAPI > Voyager-API > RSS-Fallback
     # Neben Kassen und Dienstleistern werden auch Branchenstimmen beobachtet.
-    linkedin_targets = kassen + BEOBACHTETE_ORGS + personen_targets
+    linkedin_targets = kassen + institution_targets + BEOBACHTETE_ORGS + personen_targets
     linkedin_data = ""
     if os.environ.get("LINKDAPI_KEY"):
         print("🔗 LinkedIn via LinkdAPI (inkl. BITMARCK + ITSC) ...")
