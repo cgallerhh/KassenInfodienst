@@ -124,20 +124,36 @@ def _source_overview(items: list[dict]) -> list[str]:
     return lines
 
 
+def _dedupe_account_items(items: list[dict], limit: int = 8) -> list[dict]:
+    """Entfernt inhaltliche Dubletten fuer ein kompakteres Briefing."""
+    deduped: list[dict] = []
+    seen: set[str] = set()
+    for item in items:
+        key = digest.normalize_item_key(
+            f"{item.get('org','')} {item.get('headline','')} {item.get('text','')[:280]}"
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
 def build_account_intelligence_fallback(all_research: str, today: date) -> str:
     """Deterministic fallback that writes briefing blocks instead of article cards."""
-    items = digest.build_editorial_source_items(all_research)
+    items = _dedupe_account_items(digest.build_editorial_source_items(all_research), limit=8)
     if not items:
         return digest.build_empty_summary(0, today)
 
-    top_items = items[: min(8, len(items))]
-    account_orgs = sorted({item.get("org", "Markt") for item in top_items if item.get("org")})
+    account_orgs = sorted({item.get("org", "Markt") for item in items if item.get("org")})
 
     lines: list[str] = [
         "## Management Summary",
         "",
     ]
-    for item in top_items[:5]:
+    for item in items[:5]:
         signal = _clean_sentence(item.get("text", ""), 260)
         lines.append(
             f"- **{item.get('org') or 'Markt'}:** {signal} "
@@ -150,17 +166,14 @@ def build_account_intelligence_fallback(all_research: str, today: date) -> str:
         "",
     ])
 
-    for item in top_items:
-        headline = item.get("headline") or item.get("org") or "Account-Signal"
+    for item in items:
         org = item.get("org") or "Markt"
         lines.extend([
-            f"### {org}: {headline}",
+            f"### {org}",
             "",
-            f"**Signal**  ",
-            f"{_clean_sentence(item.get('text', ''), 620)} {_item_link(item)}",
+            f"**Signal** {_clean_sentence(item.get('text', ''), 360)} ({_item_link(item)})",
             "",
-            f"**Bewertung**  ",
-            _account_hint(item),
+            f"**Bewertung** {_account_hint(item)}",
             "",
         ])
 
@@ -200,8 +213,8 @@ Pflichtstruktur:
 3 bis 6 bewertete Punkte. Jeder Punkt muss Signal, Bedeutung und fachliche Account-Bedeutung in einem fachlichen Absatz oder Bullet zusammenfassen.
 
 ## Account-Intelligence
-Pro wichtigem Signal ein Abschnitt mit:
-**Signal**
+Pro wichtigem Signal ein kompakter Abschnitt mit:
+**Signal** (max. 2 Saetze, keine Wiederholung der Ueberschrift)
 **Bewertung**
 
 ## Dienstleister- und IT-Landschaft
@@ -216,6 +229,8 @@ Kurze gruppierte Quellenliste.
 Regeln:
 - Nicht als Newsletter schreiben.
 - Nicht nur berichten, sondern bewerten.
+- Keine Dopplungen: Kein Abschnitt darf dieselbe Aussage in Ueberschrift und Signal wiederholen.
+- Unrelevante Einzelmeldungen weglassen; lieber weniger, aber belastbare Punkte.
 - Keine Artikelkarten, keine grossen Bildstrecken, keine generischen Einordnungen.
 - Keine Roh-IDs, keine Score-Artefakte, keine Labels wie Rohsignal oder Quellenradar.
 - Keine Rubrik und keine Formulierung "Gespraechsanlass".
