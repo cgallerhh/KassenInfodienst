@@ -16,7 +16,14 @@ import digest
 
 ACCOUNT_INTELLIGENCE_SYSTEM = """
 Du erstellst kein Newsletter-Format, sondern ein woechentliches
-Account-Intelligence-Briefing GKV fuer einen erfahrenen Account Manager.
+Account-Intelligence-Briefing GKV fuer Christian Galler in seiner Rolle als
+Account Manager im IT-Vertrieb fuer gesetzliche Krankenkassen.
+
+Leitfrage: Was sollte Christian diese Woche wissen, um Markt, Kunden, Personen,
+Politik, Dienstleister und breite IT-Themen in der GKV-Welt einzuordnen?
+Dazu zaehlen auch Fusionen, gemeinsame IT-Projekte, Kassenkooperationen,
+Plattform-/Betriebsthemen, Daten/KI/Automatisierung, Serviceprozesse und
+Versorgungsprogramme mit operativer Folge.
 
 Ein Newsletter berichtet. Dieses Briefing bewertet.
 
@@ -24,18 +31,21 @@ Jede relevante Quelle muss in Account-Logik uebersetzt werden:
 - Was ist das Signal?
 - Warum erzeugt es Druck, Risiko oder Bewegung im GKV-/Health-IT-Markt?
 - Welche Kassen, Dienstleister, IT-Landschaften oder Rollen koennten betroffen sein?
-- Was ist ein guter Gespraechsanlass?
-- Welche Anschlussfrage kann im Account konkret gestellt werden?
+- Welche fachliche Account-Bedeutung ergibt sich daraus?
 
 Schreibe nicht: "Die gematik hat X veroeffentlicht."
 Schreibe: "Das erhoeht den Umsetzungsdruck bei Kassen mit heterogener
 IT-Landschaft. Fuer BITMARCK-/ITSC-nahe Kassen kann daraus Beratungsbedarf bei
-Prozess-, Integrations- und Betriebsmodellen entstehen. Gespraechsanlass: Wie
-bewertet die Kasse die operative Umsetzbarkeit und welche internen Engpaesse
-sieht sie?"
+Prozess-, Integrations- und Betriebsmodellen entstehen."
 
 Keine Rohdatenoptik, keine Artikelkarten, keine generischen Quellenresuemes,
-keine Debug-Begriffe. Quellen stehen nur dort, wo sie die Bewertung stuetzen.
+keine Debug-Begriffe, keine Erklaerbaer-Passagen. Quellen stehen nur dort, wo
+sie die Bewertung stuetzen.
+
+Der Leser ist Fachspezialist mit gutem Markteinblick. Keine separaten
+Gespraechsanlaesse, keine ausformulierten Anschlussfragen, keine redaktionellen
+Restlauf- oder Nullsignal-Kommentare. Account-Bedeutung wird knapp in die
+Bewertung integriert und nicht als eigene Rubrik wiederholt.
 """
 
 
@@ -80,7 +90,7 @@ def _account_hint(item: dict) -> str:
         )
     if any(term in blob for term in ("ausschreibung", "vergabe", "zuschlag", "auftrag", "beschaffung")):
         return (
-            "Hier liegt die Account-Relevanz in der Beschaffungsnaehe: Budget, Zuständigkeit, "
+            "Hier liegt die fachliche Bedeutung in der Beschaffungsnaehe: Budget, Zuständigkeit, "
             "Leistungsbild und Zeitfenster koennen sichtbar werden. Wichtig ist, frueh zu klaeren, "
             "ob es nur um Technik oder um Prozess-, Betriebs- und Integrationsleistung geht."
         )
@@ -94,20 +104,6 @@ def _account_hint(item: dict) -> str:
         "Das Signal sollte als Account-Hypothese genutzt werden: Welche operativen Folgen entstehen "
         "fuer Service, Portal, Automatisierung, Daten, Versorgung, Betrieb oder Dienstleistersteuerung?"
     )
-
-
-def _conversation_starter(item: dict) -> str:
-    blob = f"{item.get('headline', '')} {item.get('text', '')}".lower()
-    org = item.get("org") or "die Kasse"
-    if any(term in blob for term in ("gematik", "epa", "e-pa", "ti ", "egk", "vsdm")):
-        return "Wie bewertet die Kasse die operative Umsetzbarkeit, und welche Engpaesse liegen eher in IT, Fachbereich, Betrieb oder Dienstleistersteuerung?"
-    if any(term in blob for term in ("service", "portal", "app", "kontaktcenter", "servicecenter")):
-        return "Welche digitalen Kontaktstrecken verursachen heute noch manuelle Nacharbeit oder Brueche zwischen Portal, App und Sachbearbeitung?"
-    if any(term in blob for term in ("cyber", "security", "datenschutz", "nis2", "kritis")):
-        return "Welche Sicherheits- und Compliance-Anforderungen sind schon im Betriebsmodell verankert, und wo fehlen noch klare Verantwortlichkeiten?"
-    if any(term in blob for term in ("ausschreibung", "vergabe", "zuschlag", "auftrag")):
-        return "Geht es im Leistungsbild nur um Umsetzung, oder auch um Betrieb, Integration, Prozessberatung und Change-Faehigkeit?"
-    return f"Welche interne Prioritaet hat das Thema bei {org}, und wer bewertet die naechsten operativen Schritte?"
 
 
 def _source_overview(items: list[dict]) -> list[str]:
@@ -145,7 +141,7 @@ def build_account_intelligence_fallback(all_research: str, today: date) -> str:
         signal = _clean_sentence(item.get("text", ""), 260)
         lines.append(
             f"- **{item.get('org') or 'Markt'}:** {signal} "
-            f"Bewertung: {_account_hint(item)} Gespraechsanlass: {_conversation_starter(item)}"
+            f"Bewertung: {_account_hint(item)}"
         )
 
     lines.extend([
@@ -166,48 +162,13 @@ def build_account_intelligence_fallback(all_research: str, today: date) -> str:
             f"**Bewertung**  ",
             _account_hint(item),
             "",
-            f"**Account-Relevanz**  ",
-            (
-                "Fuer das Account Management ist entscheidend, ob daraus konkreter Druck in "
-                "Prozessmodell, Integration, Betrieb, Daten, Service oder Beschaffung entsteht. "
-                "Das Signal sollte nicht als Nachricht abgehakt, sondern als Hypothese fuer "
-                "Zustaendigkeiten, Engpaesse und naechste Investitionslogik genutzt werden."
-            ),
-            "",
-            f"**Gespraechsanlass**  ",
-            _conversation_starter(item),
-            "",
         ])
 
     lines.extend([
-        "## Zielkassen-spezifische Relevanz",
-        "",
-        (
-            "Auch wenn nicht jede Quelle direkt von der DAK kommt, sind Markt- und Institutionssignale "
-            "fuer die jeweilige Zielkasse verwertbar, wenn sie operative Fragen beruehren: ePA/TI-Umsetzung, "
-            "Service- und Kontaktstrecken, Automatisierung, Informationssicherheit, Dienstleistersteuerung "
-            "und die Anschlussfaehigkeit an zentrale GKV-Plattformen."
-        ),
-        "",
-        (
-            "Fuer die naechste Ansprache der Zielkasse sollte deshalb nicht die Veroeffentlichung selbst im Mittelpunkt "
-            "stehen, sondern die Frage: Wo entsteht intern Umsetzungsdruck, und welche Abhaengigkeiten "
-            "bremsen operative Umsetzung?"
-        ),
-        "",
-        "## Gespraechsanlaesse fuer diese Woche",
-        "",
-        "- Wie bewertet die Zielkasse die operative Umsetzbarkeit aktueller gematik-/TI-/ePA-Anforderungen?",
-        "- Welche Engpaesse liegen eher in Fachbereich, IT-Betrieb, Dienstleistersteuerung oder Prozessdesign?",
-        "- Welche Service- oder Portalstrecken erzeugen noch manuelle Nacharbeit?",
-        "- Wo sind BITMARCK-/ITSC-nahe Abhaengigkeiten fuer Roadmap, Betrieb oder Integration relevant?",
-        "- Welche Themen sind bereits budgetiert, und welche sind noch als Risiko oder Pflichtprogramm gefuehrt?",
-        "",
         "## Beobachtungsliste",
         "",
         f"- Accounts/Organisationen aus diesem Lauf: {', '.join(account_orgs[:12]) or 'keine eindeutigen Accounts' }.",
         "- Wiederkehrende Entscheider, offizielle Accounts und Dienstleistersignale im naechsten Lauf hoeher gewichten.",
-        "- Quellen ohne konkrete Account-Implikation konsequent weglassen, auch wenn sie fachlich interessant wirken.",
         "",
     ])
     lines.extend(_source_overview(items))
@@ -221,9 +182,11 @@ def generate_account_intelligence_summary(client: digest.openai.OpenAI, all_rese
     if not source_pack:
         return build_account_intelligence_fallback(all_research, today)
 
-    prompt = f"""Erstelle aus den Quellen ein Account-Intelligence-Briefing GKV.
+    prompt = f"""Erstelle aus den Quellen ein Account-Intelligence-Briefing GKV fuer Christian Galler als Account Manager im IT-Vertrieb fuer gesetzliche Krankenkassen.
 
-Zielaccount-Kontext: Wenn der Lauf nur eine Kasse betrifft, ist diese Kasse der primaere Account-Fokus. Bei Mehrkassen-Laeufen muessen die Implikationen je relevanter Kasse klar getrennt werden. Quellen von Institutionen und Dienstleistern (z. B. gematik, BITMARCK, ITSC, AOK Systems, BSI, GKV-Spitzenverband) immer auf die jeweils betroffenen Kassen beziehen.
+Leitfrage: Was sollte Christian diese Woche ueber Markt, Kunden, Politik, Kassen-IT, Dienstleister, Top-Stimmen, Fusionen, Kooperationen und gemeinsame IT-Projekte wissen?
+
+Zielaccount-Kontext: Beruecksichtige alle relevanten Kassen, Institutionen und Dienstleister aus dem Quellenpaket. Ordne Signale nur dort einem Account zu, wo die Quelle oder eine belastbare Marktlogik das hergibt. Keine kuenstlichen Fokuslisten, keine DAK-Fixierung, keine Restlauf-Kommentare.
 
 Quellenpaket:
 {source_pack[:52000]}
@@ -234,23 +197,18 @@ Bereits letzte Woche berichtet, nicht ohne neue Entwicklung wiederholen:
 Pflichtstruktur:
 
 ## Management Summary
-3 bis 6 bewertete Punkte. Jeder Punkt muss die Logik enthalten: Signal, Bedeutung, Account-Relevanz.
+3 bis 6 bewertete Punkte. Jeder Punkt muss Signal, Bedeutung und fachliche Account-Bedeutung in einem fachlichen Absatz oder Bullet zusammenfassen.
 
 ## Account-Intelligence
 Pro wichtigem Signal ein Abschnitt mit:
 **Signal**
 **Bewertung**
-**Account-Relevanz**
-**Gespraechsanlass**
-
-## Zielkassen-spezifische Relevanz
-Nur fuer Kassen mit klarer Implikation im Lauf. Keine Behauptungen erfinden, sondern als Hypothese formulieren.
 
 ## Dienstleister- und IT-Landschaft
-BITMARCK, ITSC, AOK Systems, gematik, BSI und andere Institutionen nur aufnehmen, wenn daraus Umsetzungs-, Integrations-, Betriebs- oder Beratungsdruck folgt.
+BITMARCK, ITSC, AOK Systems, gematik, BSI und andere Institutionen aufnehmen, wenn daraus ein positives, belegbares Markt-, Projekt-, Umsetzungs-, Integrations-, Betriebs- oder Beratungsdrucksignal folgt. Keine Abschnitte, die nur sagen, dass kein belastbares Signal vorliegt.
 
-## Gespraechsanlaesse fuer diese Woche
-5 bis 8 konkrete Fragen fuer Account-Gespraeche.
+## Kassen-, Politik- und Top-Voice-Radar
+Harte politische/regulatorische Fakten, weichere Kassen-RSS-Signale und relevante LinkedIn-Top-Stimmen aus Kassen- und IT-Landschaft fachlich zusammenfuehren. Beispiele fuer relevante Stimmen: DAK-Pressestelle, IKK-classic-CDO Stefan Schellberg, BITMARCK-CEO Andreas Strausfeld, ITSC-CEO Dieter Loewe.
 
 ## Quellenbasis
 Kurze gruppierte Quellenliste.
@@ -260,7 +218,13 @@ Regeln:
 - Nicht nur berichten, sondern bewerten.
 - Keine Artikelkarten, keine grossen Bildstrecken, keine generischen Einordnungen.
 - Keine Roh-IDs, keine Score-Artefakte, keine Labels wie Rohsignal oder Quellenradar.
-- Keine neuen Fakten erfinden; weiche Schluesse als Hypothese, Signal oder Gespraechsanlass markieren.
+- Keine Rubrik und keine Formulierung "Gespraechsanlass".
+- Keine separate Rubrik "Account-Relevanz"; fachliche Account-Bedeutung in die Bewertung integrieren.
+- Keine Rubrik "Zielkassen-spezifische Relevanz".
+- Keine redaktionellen Negativbloecke wie "Rest des Laufs", "nicht kuenstlich aufblasen",
+  "keine belastbaren Signale", "nur nachrangig relevant" oder Zusammenfassungen nicht relevanter Kassen.
+- Quellen ohne verwertbares Signal einfach weglassen.
+- Keine neuen Fakten erfinden; weiche Schluesse als Hypothese oder Signal markieren.
 - Quellenlinks kurz als [Quelle](URL), [LinkedIn](URL) oder [Zum Artikel](URL).
 - Deutsch, praezise, account-orientiert.
 """

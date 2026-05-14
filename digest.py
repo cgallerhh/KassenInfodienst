@@ -90,7 +90,7 @@ LINKEDIN_POSTS_PER_ACCOUNT = env_int("LINKEDIN_POSTS_PER_ACCOUNT", 10)
 NEWS_RSS_MARKET_LIMIT = env_int("NEWS_RSS_MARKET_LIMIT", 10)
 ENABLE_LINKEDIN_VOYAGER = os.environ.get("ENABLE_LINKEDIN_VOYAGER", "").lower() in {"1", "true", "yes"}
 ENABLE_SOURCE_IMAGES = os.environ.get("ENABLE_SOURCE_IMAGES", "true").lower() in {"1", "true", "yes"}
-ENABLE_PERSONEN_RADAR = os.environ.get("ENABLE_PERSONEN_RADAR", "").lower() in {"1", "true", "yes"}
+ENABLE_PERSONEN_RADAR = os.environ.get("ENABLE_PERSONEN_RADAR", "true").lower() in {"1", "true", "yes"}
 
 RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5-nano"
 SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5-nano"
@@ -754,34 +754,48 @@ def newsletter_needs_repair(text: str, source_count: int = 0) -> bool:
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """Du bist Redakteur des persoenlichen Wochenbriefs "KassenInfodienst".
-Der Dienst richtet sich an einen erfahrenen Account Manager im GKV-/Health-IT-Markt.
+Der Dienst richtet sich an Christian Galler in seiner Rolle als Account Manager
+im IT-Vertrieb fuer gesetzliche Krankenkassen. Leitfrage jeder Ausgabe: Was muss
+Christian diese Woche wissen, um Markt, Kunden, relevante Personen und
+Bewegungen in der GKV-IT-Landschaft besser einzuordnen?
+
 Er soll kein allgemeiner Pressespiegel und keine Linksammlung sein, sondern ein
 entscheidungsorientiertes Branchenbriefing: Was ist passiert, warum ist es relevant,
-welcher IT-/Digital-/Regulatorik-/Beschaffungsdruck entsteht und was ist daraus
-fuer Account Management, Business Development und Networking abzuleiten?
+welcher IT-/Digital-/Regulatorik-/Beschaffungsdruck oder welche Marktbewegung
+entsteht und was ist daraus fuer Account Management, Business Development und
+Networking abzuleiten?
 
 Der bestehende KassenInfodienst bleibt erkennbar: Markdown-Rubriken, pointierte
 redaktionelle Sprache, Quellenlinks, keine leeren Platzhalter. Der Stil ist
 professionell, praezise, meinungsstark, aber nicht boulevardesk.
 
 RELEVANZKERN:
-- IT-Vorhaben, Plattformen, Apps, Portale, Service- und Prozessmodernisierung
-- TI, ePA, eGK, VSDM, gematik, Datenschutz, Informationssicherheit, B3S, NIS2,
-  KRITIS, C5 und regulatorischer Umsetzungsdruck
-- Gesetzesvorhaben, Stellungnahmen, Fristen, politische Gross- und Konfliktthemen
-- Vorstands-, CIO-, CDO-, CTO-, Bereichsleitungs- und Pressestellen-Aussagen
+- Harte Fakten aus Politik, Regulierung und Institutionen: Gesetzesvorhaben,
+  Stellungnahmen, Fristen, gematik-/TI-/ePA-Vorgaben, BSI/KRITIS/NIS2,
+  GKV-Spitzenverband, BMG, Verbandspositionen und daraus folgende Umsetzungslast
+- Breite IT-Themen in der GKV-Welt: IT-Vorhaben, Plattformen, Apps, Portale,
+  Service- und Prozessmodernisierung, Daten, KI, Automatisierung, Cloud, Betrieb
+- Fusionen, Kassenkooperationen, gemeinsame IT-Projekte, Plattformverbünde,
+  Dienstleisterwechsel, Konsolidierung, Shared Services und Verbundvorhaben
+- Kassen-eigene RSS-/News-Signale auch dann aufnehmen, wenn sie weicher sind,
+  sofern sie Positionierung, Versorgungsstrategie, Servicefokus, Prävention,
+  Mitgliederkommunikation, Kooperationen oder Themenverschiebungen einer Kasse zeigen
+- Vorstands-, CIO-, CDO-, CTO-, CEO-, Bereichsleitungs- und Pressestellen-Aussagen
 - Projektbedarf, Modernisierungsdruck, Ausschreibungsnaehe, Dienstleisterwechsel,
   Personalaufbau in IT-/Digitalrollen oder strategische Bewegungen
 - Marktsignale von Kassen, BMG, GKV-Spitzenverband, gematik, BSI, AOK-BV, vdek,
   IKK e.V., BKK Dachverband, BITMARCK, ITSC und vergleichbaren Akteuren
 
-LINKEDIN NUR ALS QUALIFIZIERTE SIGNALQUELLE:
-Bevorzugt aufnehmen: Vorstand, Geschaeftsfuehrung, CIO, CDO, CTO, Bereichsleitung
-IT/Digitalisierung/Versorgung/Strategie, offizielle Kommunikation, Pressestellen,
-relevante Verbands- und Institutionsvertreter. Ignorieren: Sachbearbeiter,
-Recruiter, generische Vertriebsrollen, Event-Selfies, Karrieremeldungen ohne
-Marktbezug, Employer Branding, reine Glueckwuensche, Likes/Reposts ohne eigene
-Einordnung oder generisches Sales-/Partner-Marketing.
+LINKEDIN ALS QUALIFIZIERTE TOP-VOICE-QUELLE:
+Bevorzugt aufnehmen: Vorstand, Geschaeftsfuehrung, CEO, CIO, CDO, CTO,
+Bereichsleitung IT/Digitalisierung/Versorgung/Strategie, offizielle
+Kommunikation, Pressestellen, relevante Verbands- und Institutionsvertreter
+sowie praegende Stimmen aus der Kassen- und GKV-IT-Landschaft. Beispiele: Chef
+der DAK-Pressestelle, IKK-classic-CDO Stefan Schellberg, BITMARCK-CEO Andreas
+Strausfeld, ITSC-CEO Dieter Loewe. Ignorieren: Sachbearbeiter, Recruiter,
+generische Vertriebsrollen, Event-Selfies ohne fachliche Aussage,
+Karrieremeldungen ohne Marktbezug, Employer Branding, reine Glueckwuensche,
+Likes/Reposts ohne eigene Einordnung oder generisches Sales-/Partner-Marketing.
 
 REDAKTIONELLE REGELN:
 - Qualitaet vor Menge. Schwache Wochen nicht kuenstlich aufblasen.
@@ -1807,6 +1821,9 @@ def _extract_candidate_items(all_research: str) -> list[dict]:
 
 
 def _prefilter_reason(text_blob: str, is_linkedin: bool) -> str:
+    is_news_rss = "news/rss" in text_blob or " rss" in text_blob
+    if is_news_rss and not is_linkedin and contains_any(text_blob, GKV_CONTEXT_TERMS):
+        return ""
     if contains_any(text_blob, EXCLUDE_TOPIC_TERMS) and not contains_any(text_blob, STRATEGIC_TOPIC_TERMS):
         return "Ausschluss: Praevention/Event/Kampagne ohne strategischen IT-Bezug"
     if "landesvertretung" in text_blob and not contains_any(text_blob, STRATEGIC_TOPIC_TERMS):
@@ -1828,11 +1845,14 @@ def score_research_items(client: openai.OpenAI, all_research: str) -> str:
         return ""
 
     scoring_prompt = f"""Bewerte Rohmeldungen für den KassenInfodienst.
-Ziel: persoenliches woechentliches GKV-/Health-IT-Briefing fuer einen erfahrenen Account Manager.
-Kein Pressespiegel, keine Linkliste, kein Rauschen.
+Ziel: persoenliches woechentliches GKV-/Health-IT-Briefing fuer Christian Galler
+in seiner Rolle als Account Manager im IT-Vertrieb fuer gesetzliche Krankenkassen.
+Leitfrage: Was sollte Christian diese Woche ueber Markt, Kunden, Kassen-IT,
+Politik, Dienstleister, Top-Stimmen, Fusionen, Kooperationen und gemeinsame
+IT-Projekte wissen? Kein Pressespiegel, keine Linkliste, kein Rauschen.
 
 Bewerte jede Meldung intern nach sechs Kriterien mit 1-5 Punkten:
-1. Strategische Relevanz fuer GKV, IT, Digitalisierung, Regulatorik oder Marktbewegung
+1. Strategische Relevanz fuer GKV, IT, Digitalisierung, Regulatorik, Fusionen, Kooperationen, gemeinsame IT-Projekte oder Marktbewegung
 2. Entscheidungsebene der Quelle
 3. Belastbarkeit der Quelle
 4. Handlungswert fuer Account Management / Business Development
@@ -1841,25 +1861,36 @@ Bewerte jede Meldung intern nach sechs Kriterien mit 1-5 Punkten:
 
 Gesamtscore:
 Score 5 = starkes strategisches Signal oder unmittelbarer Account-/Opportunity-Anlass.
-Score 4 = klar relevant, belegt, aktuell, mit IT-/Digital-/Regulatorik-/Beschaffungsbezug.
-Score 3 = schwaches, aber plausibles Marktsignal; nur behalten, wenn mehrere Indizien oder klare Entscheiderquelle.
+Score 4 = klar relevant, belegt, aktuell, mit IT-/Digital-/Regulatorik-/Beschaffungs-, Fusions-, Kooperations- oder Projektbezug.
+Score 3 = plausibles Marktsignal; behalten, wenn die Quelle fachlich relevant ist, aus einer beobachteten Kasse/Institution/Dienstleisterlandschaft kommt oder eine klare Entscheider-/Top-Voice-Quelle ist.
 Score 1-2 = Rauschen.
 
+Themenbreite:
+- Breite GKV-IT-Themen behalten: Fusionen, gemeinsame IT-Projekte, Kooperationen, Plattformverbünde, Dienstleisterwechsel, Shared Services, Daten-/KI-/Automatisierungsvorhaben, App-/Portal-/Serviceprozesse, Cloud/Betrieb/Security und Versorgungsprogramme mit Prozess- oder Datenfolge.
+
+RSS-/Kassenfeed-Regel:
+- Kassen-eigene RSS-/News-Signale nicht zu eng filtern. Auch weichere Themen behalten, wenn sie Positionierung, Versorgungsstrategie, Prävention, Service, Mitgliederkommunikation, Kooperationen, politische Haltung oder Prioritaeten einer relevanten Kasse zeigen.
+- Diese Signale nicht als harte IT-Chance ausgeben, sondern fachlich bewerten: Was zeigt es ueber Agenda, Zielgruppen, Kommunikationsdruck, Versorgungslogik oder moegliche Prozess-/Servicefolgen?
+
+Politik-/Regulatorik-Regel:
+- Harte Fakten aus BMG, Bundestag/Bundesrat, GKV-Spitzenverband, gematik, BSI, Datenschutzaufsicht, Verbänden und Fachmedien hoch priorisieren, wenn sie Fristen, Pflichten, Finanzierungsfragen, TI/ePA/eGK, Versorgung, Datenschutz, Sicherheit oder Kassenorganisation betreffen.
+
 LinkedIn-Regel:
-- Nur qualifizierte Signalquelle, kein eigener Pressespiegel.
-- Bevorzugt behalten: Vorstand, Geschaeftsfuehrung, CIO, CDO, CTO, Bereichsleitung IT/Digitalisierung/Versorgung/Strategie, Pressestelle, offizielle Unternehmenskommunikation, relevante Verbandsspitzen und Institutionen.
-- LinkedIn nur behalten, wenn konkrete Aussage zu IT, Digitalisierung, Service-/Prozessmodernisierung, TI/ePA/eGK/gematik, Datenschutz, Informationssicherheit, Gesetzgebung, Beschaffung, Plattform/App/Portal, Versorgung oder strategischer Marktbewegung vorliegt.
-- Ignorieren: Karrieremeldungen ohne Marktbezug, Event-Selfies, Kultur-/Employer-Branding, generisches Sales-/Partner-Marketing, Recruiter, Sachbearbeiter, Teamleiter ohne strategische Aussage, Glueckwuensche, Likes, Reposts ohne eigene Einordnung.
+- Qualifizierte Top-Voice-Quelle, kein beliebiger Pressespiegel.
+- Bevorzugt behalten: Vorstand, Geschaeftsfuehrung, CEO, CIO, CDO, CTO, Bereichsleitung IT/Digitalisierung/Versorgung/Strategie, Pressestelle, offizielle Unternehmenskommunikation, relevante Verbandsspitzen und Institutionen.
+- Beispiele fuer besonders relevante Stimmen: Chef der DAK-Pressestelle, IKK-classic-CDO Stefan Schellberg, BITMARCK-CEO Andreas Strausfeld, ITSC-CEO Dieter Loewe.
+- LinkedIn behalten, wenn konkrete Aussage zu IT, Digitalisierung, Service-/Prozessmodernisierung, TI/ePA/eGK/gematik, Datenschutz, Informationssicherheit, Gesetzgebung, Beschaffung, Plattform/App/Portal, Versorgung, Kassenpolitik, Dienstleistersteuerung oder strategischer Marktbewegung vorliegt.
+- Ignorieren: Karrieremeldungen ohne Marktbezug, Event-Selfies ohne fachliche Aussage, Kultur-/Employer-Branding, generisches Sales-/Partner-Marketing, Recruiter, Sachbearbeiter, Teamleiter ohne strategische Aussage, Glueckwuensche, Likes, Reposts ohne eigene Einordnung.
 
 Dienstleister-/Institutionen-Regel:
-- Behalte Hinweise auf GKV-Projekte, Go-lives, Rollouts, Implementierungen, Zuschlaege, neue Kassenkunden, Betriebs-/Service-Erfolge, regulatorische Fristen und offiziellen Umsetzungsdruck.
+- Behalte Hinweise auf GKV-Projekte, gemeinsame IT-Vorhaben, Kooperationen, Fusionen, Go-lives, Rollouts, Implementierungen, Zuschlaege, neue Kassenkunden, Betriebs-/Service-Erfolge, regulatorische Fristen und offiziellen Umsetzungsdruck.
 - BMG, GKV-Spitzenverband, gematik, BSI, AOK-Bundesverband, vdek, IKK e.V., BKK Dachverband, BITMARCK und ITSC sind wichtig, wenn daraus Handlungsdruck fuer Kassen, Dienstleister oder IT-Landschaften entsteht.
 
 Streng ausschließen:
 - allgemeine Beitragssatzmeldungen ohne IT-/Strategiewinkel
 - ePA-/TI-Pflichtthemen ohne konkreten Umsetzungs-, Anbieter-, Prozess- oder Kassenwinkel
-- Praevention, Gesundheitsratgeber, Awards, Kampagnen, allgemeines Selbstlob
-- Pressemitteilungen ohne konkretes Projekt, Namen, Frist, Volumen, neue Entscheidung oder neues Ereignis
+- generische Gesundheitsratgeber, Awards, Kampagnen oder Selbstlob ohne erkennbare Kassenpositionierung oder Marktbezug
+- Pressemitteilungen ohne konkretes Projekt, Namen, Frist, Entscheidung, neues Ereignis oder verwertbare Kassenagenda
 - Ausschreibungen unter 1 Mio EUR oder ohne IT-/Strategie-/BPO-Bezug
 - alte oder undatierte Meldungen, wenn keine aktuelle Entwicklung erkennbar ist
 
