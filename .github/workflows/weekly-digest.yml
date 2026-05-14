@@ -82,7 +82,7 @@ jobs:
           TAGE="$INPUT_TAGE"
           TAGE="${TAGE:-7}"
 
-          python digest.py $KASSEN_ARG --tage "$TAGE" --email
+          python digest_account.py $KASSEN_ARG --tage "$TAGE" --email
 
       - name: Gedächtnis (last_week.md) committen
         if: success()
