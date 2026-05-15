@@ -120,7 +120,9 @@ FILTER_REPORT: dict[str, int] = {}
 EXCLUDE_TOPIC_TERMS = {
     "prävention", "praevention", "bewegung", "jugend", "schule", "schul", "kampagne",
     "gewinnspiel", "gesundheitswoche", "aktionstag", "event", "messe", "award", "preis",
-    "glückwunsch", "glueckwunsch", "sommerfest", "netzwerktreffen", "follower", "likes"
+    "glückwunsch", "glueckwunsch", "sommerfest", "netzwerktreffen", "follower", "likes",
+    "muttertag", "sonne", "pink", "charity run", "run & bike", "comfortable 5k",
+    "podcast", "business talks", "für die ohren", "fuer die ohren",
 }
 
 LINKEDIN_ALLOWED_ROLES = {
@@ -211,6 +213,9 @@ LINKEDIN_NOISE_TERMS = {
     "sommerfest", "after work", "glückwunsch", "congratulations", "messebesuch",
     "event-selfie", "danke für den austausch", "toller austausch", "employer branding",
     "kununu", "benefits", "work-life", "recruiting", "talent", "azubi",
+    "muttertag", "ganz viel pink", "charity run", "run & bike", "comfortable 5k",
+    "started today's run", "podcast", "business talks", "ein bisschen was für die ohren",
+    "ein bisschen was fuer die ohren", "reise", "städtetrip", "staedtetrip",
 }
 
 LINKEDIN_HARD_EXCLUDE_TERMS = {
@@ -285,13 +290,12 @@ def evaluate_linkedin_signal(org: dict, actor_name: str, actor_title: str, text:
         or org.get("name", "").lower() in text_lower
     )
     has_topic = contains_any(text_lower, STRATEGIC_TOPIC_TERMS)
-    has_gkv_context = contains_any(text_lower, GKV_CONTEXT_TERMS)
+    has_gkv_context = contains_any(text_lower, GKV_CONTEXT_TERMS) or is_official_or_target
     is_noise = contains_any(text_lower, LINKEDIN_NOISE_TERMS)
-    is_viral = reactions >= 30
 
     if is_non_decision and not is_official_or_target:
         return False, "Nicht-Entscheiderrolle"
-    if is_noise and not has_topic:
+    if is_noise:
         return False, "Karriere/Event/Marketing ohne strategischen Bezug"
     if is_provider and not has_gkv_context:
         return False, "Dienstleisterpost ohne GKV-Kontext"
@@ -301,7 +305,7 @@ def evaluate_linkedin_signal(org: dict, actor_name: str, actor_title: str, text:
         return False, "Marktpost ohne belastbaren GKV-Bezug"
     if not (is_decision_maker or is_official_or_target or is_influencer):
         return False, "keine Entscheider- oder offizielle Quelle"
-    if not (has_topic or is_viral or (is_decision_maker and has_gkv_context)):
+    if not (has_topic and has_gkv_context):
         return False, "kein belastbares IT-, Digital-, Regulatorik- oder Marktsignal"
     return True, "qualifiziertes LinkedIn-Signal"
 
@@ -712,7 +716,7 @@ def build_editorial_source_items(all_research: str, limit: int | None = None) ->
         source_id = f"S{len(result) + 1:02d}"
         kind = source_kind(item, label, url)
         if kind == "LinkedIn":
-            reject_reason = _linkedin_quality_reject_reason(f"{item.get('section', '')} {item.get('kasse', '')} {cleaned}")
+            reject_reason = _linkedin_quality_reject_reason(cleaned)
             if reject_reason:
                 continue
         org = clean_visible_source_text(item.get("kasse", "") or "")
@@ -771,6 +775,10 @@ def newsletter_needs_repair(text: str, source_count: int = 0) -> bool:
         "TK**",
         "DAK**",
         "Warm-up fuer Account-Recherche",
+        "## Management Summary",
+        "## Account-Intelligence",
+        "## Beobachtungsliste",
+        "## Quellenbasis",
         "Zahnzusatzversicherung",
         "WINGCOPTER",
         "University of Kassel",
@@ -1238,9 +1246,8 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             has_gkv_context = (
                 any(term in text_lower for term in GKV_CONTEXT_TERMS)
                 or is_dedicated_gkv_provider
-                or (not is_provider and not is_market)
+                or is_company_or_kasse
             )
-            is_viral = reactions >= 20
             is_branchenthema = any(k in text_lower for k in THEMEN_BRANCHE)
 
             qualified, drop_reason = evaluate_linkedin_signal(kasse, actor_name, actor_title, text, reactions)
@@ -1263,8 +1270,7 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                 dropped_non_decision += 1
                 continue
             if not (
-                is_it_thema
-                or is_viral
+                (is_it_thema and has_gkv_context)
                 or (is_influencer and is_branchenthema)
                 or (is_entscheider and has_gkv_context)
                 or (is_company_or_kasse and has_gkv_context and is_branchenthema)
@@ -1862,6 +1868,8 @@ def _prefilter_reason(text_blob: str, is_linkedin: bool) -> str:
     is_news_rss = "news/rss" in text_blob or " rss" in text_blob
     if is_news_rss and not is_linkedin and contains_any(text_blob, GKV_CONTEXT_TERMS):
         return ""
+    if is_linkedin and contains_any(text_blob, LINKEDIN_NOISE_TERMS | EXCLUDE_TOPIC_TERMS):
+        return "Ausschluss: LinkedIn-Rauschen ohne belastbares Account-Signal"
     if contains_any(text_blob, EXCLUDE_TOPIC_TERMS) and not contains_any(text_blob, STRATEGIC_TOPIC_TERMS):
         return "Ausschluss: Praevention/Event/Kampagne ohne strategischen IT-Bezug"
     if "landesvertretung" in text_blob and not contains_any(text_blob, STRATEGIC_TOPIC_TERMS):
@@ -1880,7 +1888,7 @@ def _linkedin_quality_reject_reason(text_blob: str) -> str:
     blob = text_blob.lower()
     if contains_any(blob, LINKEDIN_HARD_EXCLUDE_TERMS):
         return "LinkedIn fachfremd oder nur Consumer-/Event-/Follower-Signal"
-    if contains_any(blob, LINKEDIN_NOISE_TERMS) and not contains_any(blob, LINKEDIN_ACCOUNT_VALUE_TERMS):
+    if contains_any(blob, LINKEDIN_NOISE_TERMS | EXCLUDE_TOPIC_TERMS):
         return "LinkedIn HR/Event/Marketing ohne fachlichen GKV-IT-Wert"
 
     trusted = contains_any(blob, LINKEDIN_TRUSTED_MARKET_TERMS)
@@ -1888,7 +1896,7 @@ def _linkedin_quality_reject_reason(text_blob: str) -> str:
     has_gkv_context = contains_any(blob, GKV_CONTEXT_TERMS)
     role_ok = _linkedin_role_ok(blob)
 
-    if trusted and (has_account_value or has_gkv_context):
+    if trusted and has_account_value and has_gkv_context:
         return ""
     if role_ok and has_account_value and has_gkv_context:
         return ""
@@ -1994,8 +2002,8 @@ Rohmeldungen:
         raw = completion.choices[0].message.content or "{}"
         data = json.loads(raw)
     except Exception as e:
-        print(f"   ⚠️  Scoring fehlgeschlagen, nutze Rohdaten ungefiltert: {e}", file=sys.stderr)
-        return all_research
+        print(f"   ⚠️  Scoring fehlgeschlagen, verwerfe Rohdaten statt ungefilterter Ausgabe: {e}", file=sys.stderr)
+        return ""
 
     decisions = {
         str(item.get("id")): item
@@ -2020,8 +2028,9 @@ Rohmeldungen:
         category = str(decision.get("category") or item["section"])
         text_blob = f"{item.get('section', '')} {category} {item.get('text', '')}".lower()
         is_linkedin = "linkedin" in text_blob
+        relevance_blob = item.get("text", "").lower() if is_linkedin else text_blob
 
-        pre_reason = _prefilter_reason(text_blob, is_linkedin)
+        pre_reason = _prefilter_reason(relevance_blob, is_linkedin)
         if pre_reason:
             dropped += 1
             filter_stats["verworfen"] += 1
@@ -2030,7 +2039,7 @@ Rohmeldungen:
             continue
 
         if is_linkedin:
-            linkedin_reject_reason = _linkedin_quality_reject_reason(text_blob)
+            linkedin_reject_reason = _linkedin_quality_reject_reason(item.get("text", ""))
             if linkedin_reject_reason:
                 dropped += 1
                 filter_stats["verworfen"] += 1
@@ -2093,118 +2102,60 @@ Rohmeldungen:
 
 
 def build_observation_radar(all_research: str) -> str:
-    """Fail-open: Rohquellen bleiben im Wochenbericht, auch wenn das Scoring zu streng war."""
-    items = _extract_candidate_items(all_research)
-    if not items:
-        return "## Beobachtungsradar aus Rohquellen\n\n" + all_research[:30000]
-
-    blocks: list[str] = []
-    for item in items[:MAX_SCORING_ITEMS]:
-        section = item.get("section") or "Rohquelle"
-        kasse = item.get("kasse") or "Markt"
-        text = item.get("text", "").strip()
-        if not text:
-            continue
-        blocks.append(
-            f"### {section} | {kasse} | Beobachtung\n"
-            f"{text}\n"
-            "Vertriebsrelevanz: Rohsignal aus Quellenlage; redaktionell einordnen, nicht als harte Abschlusschance behaupten."
-        )
-
-    return "## Beobachtungsradar aus Rohquellen\n\n" + "\n\n".join(blocks)
+    """Fail-closed: schwache Rohquellen werden nicht als Beobachtungsradar ausgegeben."""
+    return ""
 
 
 def build_source_based_newsletter(all_research: str, today: date) -> str:
-    """Erstellt einen lesbaren Zeitungs-Fallback, falls die Modell-Generierung leer bleibt."""
-    items = build_editorial_source_items(all_research)
+    """Strenger Fallback: nur Top-Signale, keine doppelte Rubrikstruktur."""
+    items = build_editorial_source_items(all_research, limit=5)
     if not items:
         return build_empty_summary(0, today)
 
-    issue_teasers: list[str] = []
-    for item in items[:8]:
-        teaser = item["text"]
-        if len(teaser) > 230:
-            teaser = teaser[:227].rstrip() + "..."
-        if item["url"]:
-            link_label = "LinkedIn" if item["kind"] == "LinkedIn" else "Quelle"
-            teaser = f"{teaser} [{link_label}]({item['url']})"
-        issue_teasers.append(f"- **{item['headline']}:** {teaser}")
-
-    def fallback_angle(item: dict) -> str:
-        if item["kind"] == "LinkedIn":
-            return (
-                "Für den Wochenblick ist das ein Signal aus dem Marktgespräch. Entscheidend ist nicht der einzelne Post, "
-                "sondern dass ein relevanter Account öffentlich ein Thema, eine Rolle oder eine Priorität sichtbar macht. "
-                "Das ist ein guter Anlass, die Organisation, die Zuständigkeit und mögliche Anschlussfragen in den Blick zu nehmen."
-            )
+    def fallback_relevance(item: dict) -> str:
+        blob = f"{item.get('org', '')} {item.get('headline', '')} {item.get('text', '')}".lower()
         if item["kind"] == "Vergabe":
             return (
-                "Für Vertrieb und Partnermanagement zählt hier der konkrete Prozess: Fristen, Zuständigkeiten, Plattformbedarf "
-                "und die Frage, welche Betriebs- oder Integrationsleistungen daraus folgen können."
+                "Beschaffungsnaehe: Fristen, Zustaendigkeiten, Plattformbedarf und moegliche Betriebs- oder "
+                "Integrationsleistungen werden sichtbar."
             )
-        if item["kind"] == "News/RSS":
+        if contains_any(blob, {"gematik", "epa", "e-pa", "ti ", "egk", "vsdm", "bsi", "nis2", "kritis"}):
             return (
-                "Für GKV und IT lohnt sich der Blick auf die Quelle, weil solche Fachpresse- und RSS-Signale oft früher zeigen, "
-                "welche Themen in Versorgung, Betrieb, Daten, Automatisierung oder Dienstleistersteuerung ankommen."
+                "Regulatorik- oder Betriebsdruck: Kassen muessen Fristen, Schnittstellen, Kommunikation, "
+                "Sicherheit und Dienstleistersteuerung operativ zusammenbringen."
             )
-        return (
-            "Für die Branchenübersicht ist das relevant, weil hier Marktbewegung, Organisation und mögliche IT-Nachfrage zusammenlaufen."
-        )
+        if contains_any(blob, STRATEGIC_TOPIC_TERMS):
+            return "Konkretes Digital-/IT-/Prozesssignal mit moeglicher Folge fuer Betrieb, Service, Daten oder Plattformen."
+        return ""
 
-    def article_block(item: dict) -> list[str]:
-        text = item["text"]
-        if len(text) > 900:
-            text = text[:897].rstrip() + "..."
-        lines = [f"### {item['headline']}"]
-        if item["image"]:
-            lines.append(f"![{item['headline']}]({item['image']})")
-        lines.append(text)
-        if item["context"] and item["context"].lower() not in text.lower():
-            lines.append(item["context"][:700].rstrip())
-        lines.append(fallback_angle(item))
+    lines: list[str] = ["## Top-Signale dieser Woche", ""]
+    kept = 0
+    for item in items:
+        relevance = fallback_relevance(item)
+        if not relevance:
+            continue
+        text = item["text"][:420].rstrip()
+        lines.extend([
+            f"### {item['org']}: {item['headline']}",
+            "",
+            f"**Signal:** {text}",
+            "",
+            f"**Warum relevant:** {relevance}",
+            "",
+            "**Account-Bedeutung:** Pruefen, ob daraus konkreter Umsetzungs-, Integrations-, Betriebs- oder Beschaffungsbedarf entsteht.",
+            "",
+        ])
         if item["url"]:
-            link_text = "Zum LinkedIn-Beitrag" if item["kind"] == "LinkedIn" else "Zum Artikel"
-            lines.append(f'<p class="more"><a href="{item["url"]}">{link_text}</a></p>')
-        return lines
-
-    lines: list[str] = [
-        "## Management Summary",
-        "",
-        *issue_teasers,
-        "",
-        "## Top-Themen der Woche",
-        "",
-        (
-            f"Der automatische Lauf hat {len(items)} relevante Quellen aus LinkedIn, News/RSS und Marktbeobachtung "
-            "verdichtet. Dieser fallbackbasierte Bericht ist bewusst quellenorientiert: Er zeigt die wichtigsten Signale, "
-            "ordnet sie fuer GKV & IT ein und verweist direkt auf die Originalquellen."
-        ),
-        "",
-    ]
-
-    lines.append("## IT-, Digital- und Beschaffungssignale")
-    for item in items[:10]:
-        lines.extend(article_block(item))
+            label = "LinkedIn" if item["kind"] == "LinkedIn" else "Quelle"
+            lines.append(f"**Quelle:** [{label}]({item['url']})")
+        else:
+            lines.append(f"**Quelle:** {item['kind']}")
         lines.append("")
+        kept += 1
 
-    if len(items) > 10:
-        lines.append("## Quellenuebersicht")
-        for item in items[10:MAX_NEWSLETTER_SOURCES]:
-            source_link_text = f" [{item['kind']}]({item['url']})" if item["url"] else f" ({item['kind']})"
-            lines.append(f"- **{item['org']}:** {item['headline']} - {item['text'][:180].rstrip()}...{source_link_text}")
-        lines.append("")
-
-    lines.extend([
-        "## Relevanz fuer mich / Account-Management-Briefing",
-        "",
-        "- LinkedIn-Beiträge nicht nach Lautstärke, sondern nach Rolle, Organisation und konkretem GKV-/IT-Bezug priorisieren.",
-        "- RSS- und Fachpressequellen öffnen: Entscheidend ist, ob hinter der Meldung ein Vorhaben, Anbieterwechsel, Rollout oder Budgetfenster liegt.",
-        "- Dienstleistermeldungen auf konkrete Belege prüfen: Kunde, Go-live, Zuschlag, Plattform, Betriebsleistung oder Community-Format.",
-        "- Für große Kassen systematisch abgleichen: Passt das Signal zu Servicecenter, Automatisierung, Portal, Daten, IT-Betrieb oder Versorgung?",
-        "- Wiederkehrende Entscheider und offizielle Accounts als Beobachtungsliste führen, damit der nächste Lauf nicht wieder bei null beginnt.",
-        "",
-    ])
-    return ensure_visuals_in_summary("\n".join(lines), all_research)
+    if kept == 0:
+        return build_empty_summary(len(items), today)
+    return "\n".join(lines).strip() + "\n"
 
 
 
@@ -2450,16 +2401,16 @@ def build_filter_report_section() -> str:
 
 def build_empty_summary(raw_highlights_count: int, today: date) -> str:
     """Erzeugt eine sichtbare, nicht-leere Mail, wenn der Relevanzfilter alles verwirft."""
-    return f"""## Keine vertriebsrelevanten Highlights
+    return f"""## Keine belastbaren Account-Signale
 
-Der automatische Lauf hat heute keine Meldungen gefunden, die den Relevanzfilter fuer den GKV-IT-Vertrieb passiert haben.
+Diese Woche gibt es keine belastbaren Account-Signale aus den beobachteten Quellen.
 
 **Quellenlage**
 - Rohquellen mit Treffern vor dem KI-Filter: {raw_highlights_count}
 - Nach Relevanzfilter: 0 kuratierte Meldungen
 - Stichtag: {today.strftime('%d.%m.%Y')}
 
-Das ist kein technischer Fehler: Die Suche lief durch, aber es gab keine belastbaren Signale mit konkretem IT-, Automatisierungs-, Ausschreibungs-, Personal- oder Flurfunkbezug.
+Das ist kein technischer Fehler. Der Lauf wurde bewusst nicht mit LinkedIn-/RSS-Rauschen aufgefuellt.
 """
 
 
@@ -3375,8 +3326,8 @@ def main() -> None:
             report_section = build_filter_report_section()
             all_research = (report_section + "\n" + filtered_research).strip()
         else:
-            print("   ⚠️  Filter ergab 0 Treffer – nutze Rohquellen als Beobachtungsradar statt Nullmeldung.")
-            all_research = build_observation_radar(raw_research)
+            print("   ℹ️  Filter ergab 0 belastbare Treffer – erstelle kurze Nullmeldung.")
+            all_research = ""
 
     highlights_count = len(_extract_candidate_items(all_research)) if all_research.strip() else 0
     print(f"\n📊 {highlights_count} kuratierte Meldung(en) aus {raw_highlights_count} Rohquellen.")

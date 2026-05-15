@@ -39,19 +39,21 @@ IT-Landschaft. Fuer BITMARCK-/ITSC-nahe Kassen kann daraus Beratungsbedarf bei
 Prozess-, Integrations- und Betriebsmodellen entstehen."
 
 Keine Rohdatenoptik, keine Artikelkarten, keine generischen Quellenresuemes,
-keine Debug-Begriffe, keine Erklaerbaer-Passagen. Quellen stehen nur dort, wo
-sie die Bewertung stuetzen.
+keine Debug-Begriffe, keine Erklaerbaer-Passagen. Quellen stehen nur direkt
+am jeweiligen Top-Signal.
 
-Der Leser ist Fachspezialist mit gutem Markteinblick. Keine separaten
-Gespraechsanlaesse, keine ausformulierten Anschlussfragen, keine redaktionellen
-Restlauf- oder Nullsignal-Kommentare. Account-Bedeutung wird knapp in die
-Bewertung integriert und nicht als eigene Rubrik wiederholt.
+Der Leser ist Fachspezialist mit gutem Markteinblick. Sehr streng kuratieren:
+lieber 1 bis 3 starke Signale oder eine kurze Nullmeldung als Fuellmaterial.
+Keine separaten Gespraechsanlaesse, keine Beobachtungsliste, keine
+Account-Intelligence-Kopie der Management Summary. Account-Bedeutung wird nur
+bei belastbarem Signal genannt.
 """
 
 
 def _clean_sentence(text: str, limit: int = 520) -> str:
     cleaned = digest.readable_source_text(text or "")
     cleaned = re.sub(r"\bEinordnung:\s*", "", cleaned)
+    cleaned = re.sub(r"\s+\b(Quelle|LinkedIn|Zum Artikel)\b\s*$", "", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" -*")
     if len(cleaned) > limit:
         cleaned = cleaned[: limit - 3].rstrip() + "..."
@@ -94,34 +96,31 @@ def _account_hint(item: dict) -> str:
             "Leistungsbild und Zeitfenster koennen sichtbar werden. Wichtig ist, frueh zu klaeren, "
             "ob es nur um Technik oder um Prozess-, Betriebs- und Integrationsleistung geht."
         )
-    if item.get("kind") == "LinkedIn":
+    if any(term in blob for term in ("fusion", "kooperation", "go-live", "rollout", "implementierung", "migration")):
         return (
-            "Relevant ist das nur bei qualifizierten Stimmen aus Kasse, Verband, Politik oder GKV-IT. "
-            "Der Wert liegt dann in sichtbarer Prioritaetensetzung: Strategie, IT-/Serviceagenda, "
-            "Regulatorik, Dienstleistersteuerung, Plattform- oder Versorgungslogik."
+            "Das ist ein belastbares Markt- oder Projektbewegungssignal. Account-seitig zaehlt, "
+            "welche Abhaengigkeiten bei Plattform, Betrieb, Dienstleistersteuerung oder Prozessumsetzung entstehen."
         )
-    return (
-        "Das Signal sollte als Account-Hypothese genutzt werden: Welche operativen Folgen entstehen "
-        "fuer Service, Portal, Automatisierung, Daten, Versorgung, Betrieb oder Dienstleistersteuerung?"
-    )
+    if any(term in blob for term in ("portal", "app", "servicecenter", "kontaktcenter", "automatisierung", "ki ", "daten", "cloud")):
+        return (
+            "Das Signal verweist auf konkrete Modernisierung in Service, Daten, Automatisierung oder Betrieb. "
+            "Relevant ist es nur, wenn daraus ein fachlicher Umsetzungs- oder Integrationsbedarf ableitbar ist."
+        )
+    return ""
 
 
-def _source_overview(items: list[dict]) -> list[str]:
-    grouped: dict[str, list[dict]] = {}
-    for item in items:
-        grouped.setdefault(item.get("kind") or "Quelle", []).append(item)
-
-    lines = ["## Quellenbasis", ""]
-    for kind in ("LinkedIn", "News/RSS", "Vergabe", "Marktquelle"):
-        if kind not in grouped:
-            continue
-        lines.append(f"**{kind}**")
-        for item in grouped[kind][:8]:
-            org = item.get("org") or "Markt"
-            headline = item.get("headline") or "Signal"
-            lines.append(f"- **{org}:** {headline} - {_item_link(item)}")
-        lines.append("")
-    return lines
+def _account_meaning(item: dict) -> str:
+    blob = f"{item.get('org', '')} {item.get('headline', '')} {item.get('text', '')}".lower()
+    org = item.get("org") or "den Account"
+    if any(term in blob for term in ("gematik", "epa", "e-pa", "ti ", "egk", "vsdm", "telematik")):
+        return f"Bei {org} auf Umsetzungsstand, Schnittstellen, Betriebsmodell und Dienstleisterabhaengigkeiten schauen."
+    if any(term in blob for term in ("bitmarck", "itsc", "aok systems", "gkv informatik")):
+        return "Pruefen, ob das Signal Rueckschluesse auf Roadmap, Betriebsmodell oder Plattformabhaengigkeiten zulaesst."
+    if any(term in blob for term in ("cyber", "security", "bsi", "nis2", "kritis", "datenschutz", "informationssicherheit")):
+        return "Security-/Compliance-Anforderungen gegen Betrieb, Dienstleistervertraege und Verantwortlichkeiten spiegeln."
+    if any(term in blob for term in ("ausschreibung", "vergabe", "zuschlag", "auftrag", "beschaffung")):
+        return "Leistungsbild, Budgetnaehe und moeglichen Bedarf an Prozess-, Integrations- oder Betriebsleistung klaeren."
+    return "Nur als Account-Signal nutzen, wenn sich daraus konkrete operative Folgen oder Projektbewegung ableiten lassen."
 
 
 def _dedupe_account_items(items: list[dict], limit: int = 8) -> list[dict]:
@@ -142,49 +141,31 @@ def _dedupe_account_items(items: list[dict], limit: int = 8) -> list[dict]:
 
 
 def build_account_intelligence_fallback(all_research: str, today: date) -> str:
-    """Deterministic fallback that writes briefing blocks instead of article cards."""
-    items = _dedupe_account_items(digest.build_editorial_source_items(all_research), limit=8)
+    """Deterministic fallback that emits only strong, non-duplicated top signals."""
+    candidates = digest.build_editorial_source_items(all_research)
+    items = _dedupe_account_items([item for item in candidates if _account_hint(item)], limit=5)
     if not items:
-        return digest.build_empty_summary(0, today)
-
-    account_orgs = sorted({item.get("org", "Markt") for item in items if item.get("org")})
+        return digest.build_empty_summary(len(candidates), today)
 
     lines: list[str] = [
-        "## Management Summary",
+        "## Top-Signale dieser Woche",
         "",
     ]
-    for item in items[:5]:
-        signal = _clean_sentence(item.get("text", ""), 260)
-        lines.append(
-            f"- **{item.get('org') or 'Markt'}:** {signal} "
-            f"Bewertung: {_account_hint(item)}"
-        )
-
-    lines.extend([
-        "",
-        "## Account-Intelligence",
-        "",
-    ])
-
     for item in items:
         org = item.get("org") or "Markt"
+        headline = item.get("headline") or "Account-Signal"
         lines.extend([
-            f"### {org}",
+            f"### {org}: {headline}",
             "",
-            f"**Signal** {_clean_sentence(item.get('text', ''), 360)} ({_item_link(item)})",
+            f"**Signal:** {_clean_sentence(item.get('text', ''), 420)}",
             "",
-            f"**Bewertung** {_account_hint(item)}",
+            f"**Warum relevant:** {_account_hint(item)}",
+            "",
+            f"**Account-Bedeutung:** {_account_meaning(item)}",
+            "",
+            f"**Quelle:** {_item_link(item)}",
             "",
         ])
-
-    lines.extend([
-        "## Beobachtungsliste",
-        "",
-        f"- Accounts/Organisationen aus diesem Lauf: {', '.join(account_orgs[:12]) or 'keine eindeutigen Accounts' }.",
-        "- Wiederkehrende Entscheider, offizielle Accounts und Dienstleistersignale im naechsten Lauf hoeher gewichten.",
-        "",
-    ])
-    lines.extend(_source_overview(items))
     return "\n".join(lines).strip() + "\n"
 
 
@@ -199,7 +180,7 @@ def generate_account_intelligence_summary(client: digest.openai.OpenAI, all_rese
 
 Leitfrage: Was sollte Christian diese Woche ueber Markt, Kunden, Politik, Kassen-IT, Dienstleister, Top-Stimmen, Fusionen, Kooperationen und gemeinsame IT-Projekte wissen?
 
-Zielaccount-Kontext: Beruecksichtige alle relevanten Kassen, Institutionen und Dienstleister aus dem Quellenpaket. Ordne Signale nur dort einem Account zu, wo die Quelle oder eine belastbare Marktlogik das hergibt. Keine kuenstlichen Fokuslisten, keine DAK-Fixierung, keine Restlauf-Kommentare.
+Zielaccount-Kontext: Beruecksichtige nur belastbare Signale zu Kassen, Institutionen und Dienstleistern aus dem Quellenpaket. Ordne Signale nur dort einem Account zu, wo die Quelle oder eine belastbare Marktlogik das hergibt. Keine kuenstlichen Fokuslisten, keine DAK-Fixierung, keine Restlauf-Kommentare.
 
 Quellenpaket:
 {source_pack[:52000]}
@@ -209,38 +190,32 @@ Bereits letzte Woche berichtet, nicht ohne neue Entwicklung wiederholen:
 
 Pflichtstruktur:
 
-## Management Summary
-3 bis 6 bewertete Punkte. Jeder Punkt muss Signal, Bedeutung und fachliche Account-Bedeutung in einem fachlichen Absatz oder Bullet zusammenfassen.
+## Top-Signale dieser Woche
+1 bis 5 kurze Abschnitte. Jeder Abschnitt exakt mit:
+**Signal:** konkrete Entwicklung, maximal 2 Saetze.
+**Warum relevant:** fachliche Bedeutung fuer GKV-/Health-IT, Regulierung, Dienstleister, Beschaffung oder Kassenbetrieb.
+**Account-Bedeutung:** konkrete Ableitung fuer Account Management oder Business Development.
+**Quelle:** kurzer Link.
 
-## Account-Intelligence
-Pro wichtigem Signal ein kompakter Abschnitt mit:
-**Signal** (max. 2 Saetze, keine Wiederholung der Ueberschrift)
-**Bewertung**
-
-## Dienstleister- und IT-Landschaft
-BITMARCK, ITSC, AOK Systems, gematik, BSI und andere Institutionen aufnehmen, wenn daraus ein positives, belegbares Markt-, Projekt-, Umsetzungs-, Integrations-, Betriebs- oder Beratungsdrucksignal folgt. Keine Abschnitte, die nur sagen, dass kein belastbares Signal vorliegt.
-
-## Kassen-, Politik- und Top-Voice-Radar
-Harte politische/regulatorische Fakten, weichere Kassen-RSS-Signale und relevante LinkedIn-Top-Stimmen aus Kassen- und IT-Landschaft fachlich zusammenfuehren. Beispiele fuer relevante Stimmen: DAK-Pressestelle, IKK-classic-CDO Stefan Schellberg, BITMARCK-CEO Andreas Strausfeld, ITSC-CEO Dieter Loewe.
-
-## Quellenbasis
-Kurze gruppierte Quellenliste.
+Wenn keine belastbaren Signale vorliegen, schreibe nur:
+## Keine belastbaren Account-Signale
+Diese Woche gibt es keine belastbaren Account-Signale aus den beobachteten Quellen.
 
 Regeln:
-- Nicht als Newsletter schreiben.
-- Nicht nur berichten, sondern bewerten.
+- Sehr streng kuratieren: lieber 1 bis 3 starke Signale oder eine kurze Nullmeldung als Fuellmaterial.
+- Nicht als Newsletter schreiben, nicht nur berichten, sondern bewerten.
 - Keine Dopplungen: Kein Abschnitt darf dieselbe Aussage in Ueberschrift und Signal wiederholen.
-- Unrelevante Einzelmeldungen weglassen; lieber weniger, aber belastbare Punkte.
+- Unrelevante Einzelmeldungen weglassen; private Posts, Events, Charity, Feiertage, Podcast-/KI-Selbstvermarktung, Reise-/Sportnotizen und generische Buerokratieposts nie aufnehmen.
 - Keine Artikelkarten, keine grossen Bildstrecken, keine generischen Einordnungen.
 - Keine Roh-IDs, keine Score-Artefakte, keine Labels wie Rohsignal oder Quellenradar.
 - Keine Rubrik und keine Formulierung "Gespraechsanlass".
-- Keine separate Rubrik "Account-Relevanz"; fachliche Account-Bedeutung in die Bewertung integrieren.
+- Keine Rubriken "Management Summary", "Account-Intelligence", "Beobachtungsliste", "Quellenbasis" oder "Account-Relevanz".
 - Keine Rubrik "Zielkassen-spezifische Relevanz".
 - Keine redaktionellen Negativbloecke wie "Rest des Laufs", "nicht kuenstlich aufblasen",
   "keine belastbaren Signale", "nur nachrangig relevant" oder Zusammenfassungen nicht relevanter Kassen.
 - Quellen ohne verwertbares Signal einfach weglassen.
 - Keine neuen Fakten erfinden; weiche Schluesse als Hypothese oder Signal markieren.
-- Quellenlinks kurz als [Quelle](URL), [LinkedIn](URL) oder [Zum Artikel](URL).
+- Quellenlinks nur direkt im jeweiligen Top-Signal, kurz als [Quelle](URL), [LinkedIn](URL) oder [Zum Artikel](URL).
 - Deutsch, praezise, account-orientiert.
 """
 
