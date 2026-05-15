@@ -244,6 +244,17 @@ LINKEDIN_ACCOUNT_VALUE_TERMS = STRATEGIC_TOPIC_TERMS | {
     "selektivvertrag", "digitalstrategie", "kassenpolitik",
 }
 
+HARD_ACCOUNT_SIGNAL_TERMS = {
+    "fusion", "fusionen", "zusammenschluss", "kooperation", "gemeinsames projekt",
+    "go-live", "golive", "rollout", "implementierung", "migration", "plattform",
+    "software", "cloud", "portal", "app", "servicecenter", "kontaktcenter",
+    "automatisierung", "ki ", "daten", "interoperabilität", "interoperabilitaet",
+    "epa", "e-pa", "egk", "vsdm", "ti ", "telematik", "gematik",
+    "bsi", "nis2", "kritis", "b3s", "c5", "datenschutz", "informationssicherheit",
+    "ausschreibung", "vergabe", "zuschlag", "auftrag", "beschaffung",
+    "dienstleister", "bitmarck", "itsc", "aok systems", "gkv informatik",
+}
+
 SOURCE_RELIABILITY_LABELS = {
     "Primärquelle": 5,
     "Pressemitteilung": 4,
@@ -361,8 +372,10 @@ def clean_visible_source_text(text: str) -> str:
     """Entfernt interne Scoring-/Markdown-Artefakte aus sichtbaren Newsletter-Quellen."""
     cleaned = (text or "").strip()
     cleaned = re.sub(r"^#+\s*", "", cleaned)
-    cleaned = re.sub(r"\bQ\d{2}\s*\|\s*", "", cleaned)
-    cleaned = re.sub(r"\s*\|\s*Score\s+\d+\b", "", cleaned)
+    cleaned = re.sub(r"\b[QR]\d{2}\s*\|\s*", "", cleaned)
+    cleaned = re.sub(r"\s*\|\s*Score=?\d+\b", "", cleaned)
+    cleaned = re.sub(r"^(Top-Thema|Management|Kassenradar|Institutionen/Politik|IT/Digital/Beschaffung|LinkedIn|Marktsignal|Quelle)\s*\|\s*", "", cleaned)
+    cleaned = re.sub(r"^(Primärquelle|Pressemitteilung|Verbands-/Institutionsseite|LinkedIn-Signal|Medienbericht|Sonstiger Hinweis|Marktquelle)\s*\|\s*", "", cleaned)
     cleaned = re.sub(r"\*\*\s*\((LinkedIn|News/RSS|RSS)\)", r" (\1)", cleaned)
     cleaned = cleaned.replace("**", "")
     cleaned = cleaned.replace("Vertriebsrelevanz:", "Einordnung:")
@@ -656,9 +669,22 @@ def strip_source_noise(text: str) -> str:
         cleaned,
         flags=re.I,
     )
+    cleaned = re.sub(
+        r"^(Top-Thema|Management|Kassenradar|Institutionen/Politik|IT/Digital/Beschaffung|LinkedIn|Marktsignal|Quelle)\s*\|\s*",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    cleaned = re.sub(
+        r"^(Primärquelle|Pressemitteilung|Verbands-/Institutionsseite|LinkedIn-Signal|Medienbericht|Sonstiger Hinweis|Marktquelle)\s*\|\s*",
+        "",
+        cleaned,
+        flags=re.I,
+    )
     cleaned = re.sub(r"^[^:]{1,90}\s+\((LinkedIn|News/RSS|RSS)\)\s*:?\s*", "", cleaned, flags=re.I)
     cleaned = re.sub(r"^\[[0-9?.-]+\]\s*", "", cleaned)
     cleaned = re.sub(r"\bEinordnung:\s*", "", cleaned)
+    cleaned = re.sub(r"\s+\b(Quelle|LinkedIn|Zum Artikel|Google News|DAZ)\b\s*$", "", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" -*")
     return cleaned
 
@@ -720,6 +746,7 @@ def build_editorial_source_items(all_research: str, limit: int | None = None) ->
             if reject_reason:
                 continue
         org = clean_visible_source_text(item.get("kasse", "") or "")
+        org = re.sub(r"\s+\((LinkedIn|News/RSS|RSS)\)$", "", org, flags=re.I)
         result.append({
             "id": source_id,
             "kind": kind,
@@ -1621,11 +1648,12 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
         "auftrag", "zuschlag", "projekt", "kooperation", "kunde",
         "gesundheitswesen", "healthcare", "health-it", "health it", "digital health",
         "ehealth", "e-health", "daten", "plattform", "interoperabilität",
-        "interoperabilitaet", "telemedizin", "patienten",
+        "interoperabilitaet", "telemedizin", "patienten", "epa", "e-pa", "ti",
+        "gematik", "bsi", "nis2", "kritis", "datenschutz",
     }
     exclude_terms = {
         "prävention", "ratgeber", "bonus", "gesundheitstag", "gewinnspiel",
-        "podcast", "rezept", "sport", "ernährung", "e-pa", "epa",
+        "podcast", "rezept", "sport", "ernährung",
         "beitragssatz", "zusatzbeitrag",
     }
 
@@ -1903,6 +1931,65 @@ def _linkedin_quality_reject_reason(text_blob: str) -> str:
     return "LinkedIn ohne qualifizierte Top-Voice-/Kassen-/GKV-IT-Relevanz"
 
 
+def _hard_signal_reason(text_blob: str) -> str:
+    """Deterministische Rettung fuer harte Nicht-Rausch-Signale, wenn der KI-Scorer zu streng ist."""
+    blob = text_blob.lower()
+    if contains_any(blob, LINKEDIN_NOISE_TERMS | LINKEDIN_HARD_EXCLUDE_TERMS):
+        return ""
+    if not contains_any(blob, HARD_ACCOUNT_SIGNAL_TERMS):
+        return ""
+    if not (
+        contains_any(blob, GKV_CONTEXT_TERMS)
+        or contains_any(blob, {"krankenkasse", "krankenkassen", "gkv", "versicherung", "versicherte"})
+    ):
+        return ""
+    if contains_any(blob, {"fusion", "zusammenschluss"}):
+        return "Fusions-/Konsolidierungssignal mit moeglichen Folgen fuer IT-Migration, Plattformen, Prozesse und Versichertenkommunikation."
+    if contains_any(blob, {"epa", "e-pa", "egk", "vsdm", "ti ", "telematik", "gematik"}):
+        return "Regulatorisches TI-/ePA-/gematik-Signal mit Umsetzungsdruck fuer Schnittstellen, Betrieb und Kommunikation."
+    if contains_any(blob, {"bsi", "nis2", "kritis", "b3s", "c5", "datenschutz", "informationssicherheit", "security", "cyber"}):
+        return "Security-/Compliance-Signal mit Relevanz fuer Betrieb, Dienstleistersteuerung und Verantwortlichkeiten."
+    if contains_any(blob, {"ausschreibung", "vergabe", "zuschlag", "auftrag", "beschaffung"}):
+        return "Beschaffungsnahes Signal mit moeglichem Bedarf an Prozess-, Integrations-, Betriebs- oder Beratungsleistung."
+    if contains_any(blob, {"go-live", "golive", "rollout", "implementierung", "migration", "plattform", "cloud", "portal", "app", "servicecenter", "automatisierung"}):
+        return "Konkretes IT-/Digital-/Betriebssignal mit moeglichen Folgen fuer Umsetzung, Integration oder Serviceprozesse."
+    return "Belastbares GKV-/Health-IT-Signal mit fachlichem Account-Bezug."
+
+
+def build_hard_signal_rescue_research(all_research: str, limit: int = 12) -> str:
+    """Rettet harte Signale aus Rohquellen, ohne LinkedIn-/RSS-Rauschen wieder einzuschleusen."""
+    rescued: list[str] = []
+    seen: set[str] = set()
+    for item in _extract_candidate_items(all_research):
+        raw_text = item.get("text", "")
+        kind = source_kind(item)
+        cleaned = strip_source_noise(raw_text)
+        if len(cleaned) < 35:
+            continue
+        if kind == "LinkedIn" and _linkedin_quality_reject_reason(cleaned):
+            continue
+        reason = _hard_signal_reason(f"{item.get('section', '')} {item.get('kasse', '')} {cleaned}")
+        if not reason:
+            continue
+        label, _url = extract_markdown_link(raw_text)
+        key = normalize_item_key(cleaned)
+        if key in seen:
+            continue
+        seen.add(key)
+        org = clean_visible_source_text(item.get("kasse", "") or "") or "Markt"
+        org = re.sub(r"\s+\((LinkedIn|News/RSS|RSS)\)$", "", org, flags=re.I)
+        rescued.append(
+            f"**{org}**:\n"
+            f"  - {kind} | {clean_visible_source_text(raw_text)}\n"
+            f"    Kontext: {reason}"
+        )
+        if len(rescued) >= limit:
+            break
+    if not rescued:
+        return ""
+    return "## Kuratierte Quellen\n\n" + "\n\n".join(rescued)
+
+
 def score_research_items(client: openai.OpenAI, all_research: str) -> str:
     """Filtert Rohmeldungen per strukturierter Relevanzbewertung vor dem Newsletter."""
     global FILTER_REPORT
@@ -2002,8 +2089,8 @@ Rohmeldungen:
         raw = completion.choices[0].message.content or "{}"
         data = json.loads(raw)
     except Exception as e:
-        print(f"   ⚠️  Scoring fehlgeschlagen, verwerfe Rohdaten statt ungefilterter Ausgabe: {e}", file=sys.stderr)
-        return ""
+        print(f"   ⚠️  Scoring fehlgeschlagen, nutze harte Signalrettung: {e}", file=sys.stderr)
+        return build_hard_signal_rescue_research(all_research)
 
     decisions = {
         str(item.get("id")): item
@@ -2107,17 +2194,22 @@ def build_observation_radar(all_research: str) -> str:
 
 
 def build_source_based_newsletter(all_research: str, today: date) -> str:
-    """Strenger Fallback: nur Top-Signale, keine doppelte Rubrikstruktur."""
-    items = build_editorial_source_items(all_research, limit=5)
+    """Redaktioneller Fallback im bestehenden Branchenbriefing-Aufbau."""
+    items = build_editorial_source_items(all_research)
     if not items:
         return build_empty_summary(0, today)
 
-    def fallback_relevance(item: dict) -> str:
+    def relevance(item: dict) -> str:
         blob = f"{item.get('org', '')} {item.get('headline', '')} {item.get('text', '')}".lower()
         if item["kind"] == "Vergabe":
             return (
-                "Beschaffungsnaehe: Fristen, Zustaendigkeiten, Plattformbedarf und moegliche Betriebs- oder "
-                "Integrationsleistungen werden sichtbar."
+                "Beschaffungsnaehe: Fristen, Zustaendigkeiten, Leistungsbild und Budgetfenster werden sichtbar. "
+                "Fuer Account Management ist wichtig, ob Prozess-, Integrations-, Betriebs- oder Beratungsleistung gefragt ist."
+            )
+        if contains_any(blob, {"fusion", "zusammenschluss"}):
+            return (
+                "Konsolidierungssignal: Fusionen oder Zusammenschluesse erzeugen typischerweise Fragen zu "
+                "Bestandssystemen, Datenmigration, Versichertenkommunikation, Serviceprozessen und Dienstleisterlandschaft."
             )
         if contains_any(blob, {"gematik", "epa", "e-pa", "ti ", "egk", "vsdm", "bsi", "nis2", "kritis"}):
             return (
@@ -2128,33 +2220,103 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
             return "Konkretes Digital-/IT-/Prozesssignal mit moeglicher Folge fuer Betrieb, Service, Daten oder Plattformen."
         return ""
 
-    lines: list[str] = ["## Top-Signale dieser Woche", ""]
-    kept = 0
-    for item in items:
-        relevance = fallback_relevance(item)
-        if not relevance:
-            continue
-        text = item["text"][:420].rstrip()
-        lines.extend([
+    relevant_items = [item for item in items if relevance(item)]
+    if not relevant_items:
+        return build_empty_summary(len(items), today)
+
+    def source_line(item: dict) -> str:
+        link = f"[{item['kind']}]({item['url']})" if item["url"] else item["kind"]
+        return f"{item['org']}: {item['headline']} - {link}"
+
+    def block(item: dict) -> list[str]:
+        text = item["text"][:700].rstrip()
+        return [
             f"### {item['org']}: {item['headline']}",
             "",
             f"**Signal:** {text}",
             "",
-            f"**Warum relevant:** {relevance}",
+            f"**Einordnung:** {relevance(item)}",
             "",
-            "**Account-Bedeutung:** Pruefen, ob daraus konkreter Umsetzungs-, Integrations-, Betriebs- oder Beschaffungsbedarf entsteht.",
+            f"**Quelle:** {source_line(item)}",
+            "",
+        ]
+
+    lines: list[str] = [
+        "## Management Summary",
+        "",
+    ]
+    for item in relevant_items[:8]:
+        lines.append(f"- **{item['org']}:** {item['headline']}. {relevance(item)}")
+
+    lines.extend(["", "## Top-Themen der Woche", ""])
+    for item in relevant_items[:6]:
+        lines.extend(block(item))
+
+    kassen_items = [
+        item for item in relevant_items
+        if any(term in item["org"].lower() for term in ("tk", "barmer", "dak", "aok", "ikk", "bkk", "hkk", "sbk", "kkh", "kasse"))
+    ]
+    if kassen_items:
+        lines.extend(["## Kassenradar", ""])
+        for item in kassen_items[:8]:
+            lines.extend(block(item))
+
+    institution_items = [
+        item for item in relevant_items
+        if any(term in f"{item['org']} {item['headline']} {item['text']}".lower() for term in (
+            "bmg", "gkv-spitzenverband", "gematik", "bsi", "datenschutz", "aok-bundesverband",
+            "vdek", "ikk e.v", "bkk dachverband", "bitmarck", "itsc"
+        ))
+    ]
+    if institution_items:
+        lines.extend(["## Institutionen- und Politikradar", ""])
+        for item in institution_items[:8]:
+            lines.extend(block(item))
+
+    it_items = [
+        item for item in relevant_items
+        if contains_any(f"{item['headline']} {item['text']}".lower(), HARD_ACCOUNT_SIGNAL_TERMS)
+    ]
+    if it_items:
+        lines.extend(["## IT-, Digital- und Beschaffungssignale", ""])
+        for item in it_items[:8]:
+            lines.extend(block(item))
+
+    linkedin_items = [item for item in relevant_items if item["kind"] == "LinkedIn"]
+    if linkedin_items:
+        lines.extend(["## LinkedIn-Entscheidersignale", ""])
+        for item in linkedin_items[:6]:
+            lines.extend(block(item))
+
+    if len(relevant_items) >= 2:
+        lines.extend([
+            "## Marktsignale und schwache Hinweise",
+            "",
+            "Die folgenden Punkte sind als Signal oder Interpretation zu lesen, nicht als gesicherte Opportunity.",
             "",
         ])
-        if item["url"]:
-            label = "LinkedIn" if item["kind"] == "LinkedIn" else "Quelle"
-            lines.append(f"**Quelle:** [{label}]({item['url']})")
-        else:
-            lines.append(f"**Quelle:** {item['kind']}")
+        for item in relevant_items[:5]:
+            lines.append(f"- **Signal:** {item['org']} / {item['headline']} deutet auf ein Thema hin, das im Account-Kontext beobachtet werden sollte.")
         lines.append("")
-        kept += 1
 
-    if kept == 0:
-        return build_empty_summary(len(items), today)
+    lines.extend([
+        "## Relevanz fuer mich / Account-Management-Briefing",
+        "",
+    ])
+    for item in relevant_items[:10]:
+        lines.append(f"- **{item['org']}:** {relevance(item)}")
+    lines.append("")
+
+    grouped: dict[str, list[dict]] = {}
+    for item in relevant_items[:MAX_NEWSLETTER_SOURCES]:
+        grouped.setdefault(item["kind"], []).append(item)
+    lines.extend(["## Quellenuebersicht", ""])
+    for kind, group in grouped.items():
+        lines.append(f"**{kind}**")
+        for item in group[:10]:
+            lines.append(f"- {source_line(item)}")
+        lines.append("")
+
     return "\n".join(lines).strip() + "\n"
 
 
@@ -3326,8 +3488,14 @@ def main() -> None:
             report_section = build_filter_report_section()
             all_research = (report_section + "\n" + filtered_research).strip()
         else:
-            print("   ℹ️  Filter ergab 0 belastbare Treffer – erstelle kurze Nullmeldung.")
-            all_research = ""
+            rescued_research = build_hard_signal_rescue_research(raw_research)
+            if rescued_research.strip():
+                print("   ✅ KI-Filter ergab 0, harte Signalrettung hat belastbare Treffer gefunden.")
+                report_section = build_filter_report_section()
+                all_research = (report_section + "\n" + rescued_research).strip()
+            else:
+                print("   ℹ️  Filter ergab 0 belastbare Treffer – erstelle kurze Nullmeldung.")
+                all_research = ""
 
     highlights_count = len(_extract_candidate_items(all_research)) if all_research.strip() else 0
     print(f"\n📊 {highlights_count} kuratierte Meldung(en) aus {raw_highlights_count} Rohquellen.")

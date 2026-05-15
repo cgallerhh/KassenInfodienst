@@ -14,9 +14,13 @@ import re
 import digest
 
 
+_BASE_BUILD_SOURCE_BASED_NEWSLETTER = digest.build_source_based_newsletter
+_BASE_GENERATE_EXECUTIVE_SUMMARY = digest.generate_executive_summary
+
+
 ACCOUNT_INTELLIGENCE_SYSTEM = """
-Du erstellst kein Newsletter-Format, sondern ein woechentliches
-Account-Intelligence-Briefing GKV fuer Christian Galler in seiner Rolle als
+Du erstellst einen woechentlichen persoenlichen GKV-/Health-IT-Branchenbrief
+fuer Christian Galler in seiner Rolle als
 Account Manager im IT-Vertrieb fuer gesetzliche Krankenkassen.
 
 Leitfrage: Was sollte Christian diese Woche wissen, um Markt, Kunden, Personen,
@@ -25,7 +29,11 @@ Dazu zaehlen auch Fusionen, gemeinsame IT-Projekte, Kassenkooperationen,
 Plattform-/Betriebsthemen, Daten/KI/Automatisierung, Serviceprozesse und
 Versorgungsprogramme mit operativer Folge.
 
-Ein Newsletter berichtet. Dieses Briefing bewertet.
+Der bestehende KassenInfodienst bleibt als Branchenbrief erkennbar:
+Management Summary, Top-Themen, Kassenradar, Institutionen-/Politikradar,
+IT-/Digital-/Beschaffungssignale, LinkedIn-Entscheidersignale,
+Marktsignale, Account-Management-Briefing und Quellenuebersicht. Rubriken
+werden nur befuellt, wenn es belastbares Material gibt.
 
 Jede relevante Quelle muss in Account-Logik uebersetzt werden:
 - Was ist das Signal?
@@ -39,14 +47,14 @@ IT-Landschaft. Fuer BITMARCK-/ITSC-nahe Kassen kann daraus Beratungsbedarf bei
 Prozess-, Integrations- und Betriebsmodellen entstehen."
 
 Keine Rohdatenoptik, keine Artikelkarten, keine generischen Quellenresuemes,
-keine Debug-Begriffe, keine Erklaerbaer-Passagen. Quellen stehen nur direkt
-am jeweiligen Top-Signal.
+keine Debug-Begriffe, keine Erklaerbaer-Passagen. Quellen transparent und kurz
+belegen, aber nicht als Linksammlung schreiben.
 
-Der Leser ist Fachspezialist mit gutem Markteinblick. Sehr streng kuratieren:
-lieber 1 bis 3 starke Signale oder eine kurze Nullmeldung als Fuellmaterial.
-Keine separaten Gespraechsanlaesse, keine Beobachtungsliste, keine
-Account-Intelligence-Kopie der Management Summary. Account-Bedeutung wird nur
-bei belastbarem Signal genannt.
+Der Leser ist Fachspezialist mit gutem Markteinblick. Streng gegen Rauschen,
+aber nicht blind gegen Substanz: Fusionen, ePA/TI/gematik, BSI/KRITIS/NIS2,
+Vergaben, IT-Projekte, Migrationen, Plattform- und Dienstleistersignale muessen
+bei belastbarer Quelle redaktionell ausgeschoepft werden. Schwache Wochen nicht
+kuenstlich aufblasen.
 """
 
 
@@ -141,110 +149,13 @@ def _dedupe_account_items(items: list[dict], limit: int = 8) -> list[dict]:
 
 
 def build_account_intelligence_fallback(all_research: str, today: date) -> str:
-    """Deterministic fallback that emits only strong, non-duplicated top signals."""
-    candidates = digest.build_editorial_source_items(all_research)
-    items = _dedupe_account_items([item for item in candidates if _account_hint(item)], limit=5)
-    if not items:
-        return digest.build_empty_summary(len(candidates), today)
-
-    lines: list[str] = [
-        "## Top-Signale dieser Woche",
-        "",
-    ]
-    for item in items:
-        org = item.get("org") or "Markt"
-        headline = item.get("headline") or "Account-Signal"
-        lines.extend([
-            f"### {org}: {headline}",
-            "",
-            f"**Signal:** {_clean_sentence(item.get('text', ''), 420)}",
-            "",
-            f"**Warum relevant:** {_account_hint(item)}",
-            "",
-            f"**Account-Bedeutung:** {_account_meaning(item)}",
-            "",
-            f"**Quelle:** {_item_link(item)}",
-            "",
-        ])
-    return "\n".join(lines).strip() + "\n"
+    """Use the shared Branchenbrief fallback; do not reduce the output to one section."""
+    return _BASE_BUILD_SOURCE_BASED_NEWSLETTER(all_research, today)
 
 
 def generate_account_intelligence_summary(client: digest.openai.OpenAI, all_research: str, today: date) -> str:
-    """Model-based account-intelligence briefing with deterministic fallback."""
-    last_week = digest.load_last_week()
-    source_pack, editorial_items = digest.build_editorial_source_pack(all_research)
-    if not source_pack:
-        return build_account_intelligence_fallback(all_research, today)
-
-    prompt = f"""Erstelle aus den Quellen ein Account-Intelligence-Briefing GKV fuer Christian Galler als Account Manager im IT-Vertrieb fuer gesetzliche Krankenkassen.
-
-Leitfrage: Was sollte Christian diese Woche ueber Markt, Kunden, Politik, Kassen-IT, Dienstleister, Top-Stimmen, Fusionen, Kooperationen und gemeinsame IT-Projekte wissen?
-
-Zielaccount-Kontext: Beruecksichtige nur belastbare Signale zu Kassen, Institutionen und Dienstleistern aus dem Quellenpaket. Ordne Signale nur dort einem Account zu, wo die Quelle oder eine belastbare Marktlogik das hergibt. Keine kuenstlichen Fokuslisten, keine DAK-Fixierung, keine Restlauf-Kommentare.
-
-Quellenpaket:
-{source_pack[:52000]}
-
-Bereits letzte Woche berichtet, nicht ohne neue Entwicklung wiederholen:
-{last_week[:2500]}
-
-Pflichtstruktur:
-
-## Top-Signale dieser Woche
-1 bis 5 kurze Abschnitte. Jeder Abschnitt exakt mit:
-**Signal:** konkrete Entwicklung, maximal 2 Saetze.
-**Warum relevant:** fachliche Bedeutung fuer GKV-/Health-IT, Regulierung, Dienstleister, Beschaffung oder Kassenbetrieb.
-**Account-Bedeutung:** konkrete Ableitung fuer Account Management oder Business Development.
-**Quelle:** kurzer Link.
-
-Wenn keine belastbaren Signale vorliegen, schreibe nur:
-## Keine belastbaren Account-Signale
-Diese Woche gibt es keine belastbaren Account-Signale aus den beobachteten Quellen.
-
-Regeln:
-- Sehr streng kuratieren: lieber 1 bis 3 starke Signale oder eine kurze Nullmeldung als Fuellmaterial.
-- Nicht als Newsletter schreiben, nicht nur berichten, sondern bewerten.
-- Keine Dopplungen: Kein Abschnitt darf dieselbe Aussage in Ueberschrift und Signal wiederholen.
-- Unrelevante Einzelmeldungen weglassen; private Posts, Events, Charity, Feiertage, Podcast-/KI-Selbstvermarktung, Reise-/Sportnotizen und generische Buerokratieposts nie aufnehmen.
-- Keine Artikelkarten, keine grossen Bildstrecken, keine generischen Einordnungen.
-- Keine Roh-IDs, keine Score-Artefakte, keine Labels wie Rohsignal oder Quellenradar.
-- Keine Rubrik und keine Formulierung "Gespraechsanlass".
-- Keine Rubriken "Management Summary", "Account-Intelligence", "Beobachtungsliste", "Quellenbasis" oder "Account-Relevanz".
-- Keine Rubrik "Zielkassen-spezifische Relevanz".
-- Keine redaktionellen Negativbloecke wie "Rest des Laufs", "nicht kuenstlich aufblasen",
-  "keine belastbaren Signale", "nur nachrangig relevant" oder Zusammenfassungen nicht relevanter Kassen.
-- Quellen ohne verwertbares Signal einfach weglassen.
-- Keine neuen Fakten erfinden; weiche Schluesse als Hypothese oder Signal markieren.
-- Quellenlinks nur direkt im jeweiligen Top-Signal, kurz als [Quelle](URL), [LinkedIn](URL) oder [Zum Artikel](URL).
-- Deutsch, praezise, account-orientiert.
-"""
-
-    try:
-        if digest.NEWSLETTER_API == "responses":
-            response = client.responses.create(
-                model=digest.NEWSLETTER_MODEL,
-                instructions=digest.SYSTEM_PROMPT + "\n" + ACCOUNT_INTELLIGENCE_SYSTEM,
-                max_output_tokens=9000,
-                input=prompt,
-            )
-            result = response.output_text or ""
-        else:
-            completion = client.chat.completions.create(
-                model=digest.NEWSLETTER_MODEL,
-                max_completion_tokens=9000,
-                messages=[
-                    {"role": "system", "content": digest.SYSTEM_PROMPT + "\n" + ACCOUNT_INTELLIGENCE_SYSTEM},
-                    {"role": "user", "content": prompt},
-                ],
-            )
-            result = completion.choices[0].message.content or ""
-    except Exception as exc:
-        print(f"   Hinweis: Account-Intelligence-Modellfassung fehlgeschlagen, nutze Fallback: {exc}", file=digest.sys.stderr)
-        return build_account_intelligence_fallback(all_research, today)
-
-    if len(result.strip()) < 700 or digest.newsletter_needs_repair(result, len(editorial_items)):
-        return build_account_intelligence_fallback(all_research, today)
-    return result.strip() + "\n"
+    """Use the shared model briefing with the account-intelligence system addendum."""
+    return _BASE_GENERATE_EXECUTIVE_SUMMARY(client, all_research, today)
 
 
 # Patch the editorial layer before digest.main() runs.
