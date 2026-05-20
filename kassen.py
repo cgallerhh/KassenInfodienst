@@ -433,6 +433,11 @@ BEOBACHTETE_ORGS = [
         "url": "https://www.aok-systems.de",
         "linkedin_search": "AOK Systems GmbH",
         "linkedin_queries": ["AOK Systems", "AOK Systems GKV", "AOK Systems Krankenkasse"],
+        "news_queries": [
+            '"AOK Systems" GKV',
+            '"AOK Systems" Krankenkasse',
+            'site:aok-systems.de GKV OR Krankenkasse',
+        ],
         "linkedin_url": "https://www.linkedin.com/company/aok-systems-gmbh/",
     },
     {
@@ -443,6 +448,11 @@ BEOBACHTETE_ORGS = [
         "url": "https://www.gkvi.de",
         "linkedin_search": "gkv informatik",
         "linkedin_queries": ["gkv informatik", "gkvi Krankenkasse"],
+        "news_queries": [
+            '"gkv informatik" Krankenkasse',
+            '"gkvi" Krankenkasse',
+            'site:gkvi.de GKV OR Krankenkasse',
+        ],
         "linkedin_url": "https://www.linkedin.com/company/gkv-informatik/",
     },
     {
@@ -463,6 +473,11 @@ BEOBACHTETE_ORGS = [
         "url": "https://www.davaso.de",
         "linkedin_search": "DAVASO GmbH",
         "linkedin_queries": ["DAVASO", "DAVASO GKV", "DAVASO Krankenkasse"],
+        "news_queries": [
+            '"DAVASO" GKV',
+            '"DAVASO" Krankenkasse',
+            'site:davaso.de GKV OR Krankenkasse',
+        ],
         "linkedin_url": "https://www.linkedin.com/company/davaso-gmbh/",
     },
     {
@@ -482,7 +497,13 @@ BEOBACHTETE_ORGS = [
         "domain": "adesso.de",
         "url": "https://www.adesso.de",
         "linkedin_search": "adesso SE",
-        "linkedin_queries": ["adesso GKV", "adesso Krankenkasse"],
+        "linkedin_queries": ["adesso GKV", "adesso Krankenkasse", "adesso Health Krankenkasse"],
+        "news_queries": [
+            '"adesso" GKV',
+            '"adesso" Krankenkasse',
+            '"adesso" "gesetzliche Krankenversicherung"',
+            'site:adesso.de GKV Krankenkasse',
+        ],
         "linkedin_url": "https://www.linkedin.com/company/adesso-se/",
     },
     {
@@ -492,7 +513,14 @@ BEOBACHTETE_ORGS = [
         "domain": "msg.group",
         "url": "https://www.msg.group",
         "linkedin_search": "msg systems ag",
-        "linkedin_queries": ["msg GKV", "msg Krankenkasse"],
+        "linkedin_query_limit": 5,
+        "linkedin_queries": ["msg GKV", "msg Krankenkasse", "msg Health Krankenkasse", "msg gesetzliche Krankenversicherung", "msg healthcare GKV"],
+        "news_queries": [
+            '"msg" GKV Krankenkasse',
+            '"msg systems" Krankenkasse',
+            '"msg" "gesetzliche Krankenversicherung"',
+            'site:msg.group GKV Krankenkasse',
+        ],
         "linkedin_url": "https://www.linkedin.com/company/msg-systems-ag/",
     },
     {
@@ -502,7 +530,12 @@ BEOBACHTETE_ORGS = [
         "domain": "materna.de",
         "url": "https://www.materna.de",
         "linkedin_search": "Materna",
-        "linkedin_queries": ["Materna GKV", "Materna Krankenkasse"],
+        "linkedin_queries": ["Materna GKV", "Materna Krankenkasse", "Materna Health Krankenkasse"],
+        "news_queries": [
+            '"Materna" GKV Krankenkasse',
+            '"Materna" "gesetzliche Krankenversicherung"',
+            'site:materna.de GKV Krankenkasse',
+        ],
         "linkedin_url": "https://www.linkedin.com/company/materna-information-&-communications-se/",
     },
     {
@@ -512,7 +545,14 @@ BEOBACHTETE_ORGS = [
         "domain": "arvato-systems.de",
         "url": "https://www.arvato-systems.de",
         "linkedin_search": "Arvato Systems",
-        "linkedin_queries": ["Arvato Systems GKV", "Arvato Systems Krankenkasse"],
+        "linkedin_query_limit": 5,
+        "linkedin_queries": ["Arvato Systems GKV", "Arvato Systems Krankenkasse", "Arvato Health Krankenkasse", "Arvato gesetzliche Krankenversicherung", "Arvato Cloud GKV"],
+        "news_queries": [
+            '"Arvato Systems" GKV',
+            '"Arvato Systems" Krankenkasse',
+            '"Arvato Systems" "gesetzliche Krankenversicherung"',
+            'site:arvato-systems.de GKV Krankenkasse',
+        ],
         "linkedin_url": "https://www.linkedin.com/company/arvato-systems/",
     },
     {
@@ -522,7 +562,12 @@ BEOBACHTETE_ORGS = [
         "domain": "soprasteria.de",
         "url": "https://www.soprasteria.de",
         "linkedin_search": "Sopra Steria",
-        "linkedin_queries": ["Sopra Steria GKV", "Sopra Steria Krankenkasse"],
+        "linkedin_queries": ["Sopra Steria GKV", "Sopra Steria Krankenkasse", "Sopra Steria Health Krankenkasse"],
+        "news_queries": [
+            '"Sopra Steria" GKV Krankenkasse',
+            '"Sopra Steria" "gesetzliche Krankenversicherung"',
+            'site:soprasteria.de GKV Krankenkasse',
+        ],
         "linkedin_url": "https://www.linkedin.com/company/soprasteria/",
     },
 ]

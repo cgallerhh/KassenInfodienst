@@ -90,7 +90,7 @@ MAX_IMAGE_FETCHES = env_int("MAX_IMAGE_FETCHES", 24)
 LINKEDIN_QUERY_LIMIT = env_int("LINKEDIN_QUERY_LIMIT", 3)
 LINKEDIN_RADAR_LIMIT = env_int("LINKEDIN_RADAR_LIMIT", 50)
 LINKEDIN_POSTS_PER_ACCOUNT = env_int("LINKEDIN_POSTS_PER_ACCOUNT", 10)
-NEWS_RSS_MARKET_LIMIT = env_int("NEWS_RSS_MARKET_LIMIT", 30)
+NEWS_RSS_MARKET_LIMIT = env_int("NEWS_RSS_MARKET_LIMIT", 50)
 ENABLE_LINKEDIN_VOYAGER = os.environ.get("ENABLE_LINKEDIN_VOYAGER", "").lower() in {"1", "true", "yes"}
 ENABLE_SOURCE_IMAGES = os.environ.get("ENABLE_SOURCE_IMAGES", "true").lower() in {"1", "true", "yes"}
 ENABLE_PERSONEN_RADAR = os.environ.get("ENABLE_PERSONEN_RADAR", "true").lower() in {"1", "true", "yes"}
@@ -126,6 +126,12 @@ EXCLUDE_TOPIC_TERMS = {
     "glückwunsch", "glueckwunsch", "sommerfest", "netzwerktreffen", "follower", "likes",
     "muttertag", "sonne", "pink", "charity run", "run & bike", "comfortable 5k",
     "podcast", "business talks", "für die ohren", "fuer die ohren",
+}
+
+LOW_VALUE_ACCOUNT_TERMS = {
+    "innungsversammlung", "schornsteinfeger", "signal iduna", "infostand",
+    "firmenkunden", "glücksspielsucht", "gluecksspielsucht", "suchtprävention",
+    "suchtpraevention", "präventionsprojekt", "praeventionsprojekt",
 }
 
 BITMARCK_KUNDENTAG_TERMS = {
@@ -169,7 +175,9 @@ GKV_CONTEXT_TERMS = {
     "gkv", "krankenkasse", "krankenkassen", "gesetzliche krankenversicherung",
     "versicherte", "versicherten", "versorgung", "leistungserbringer",
     "tk", "techniker krankenkasse", "barmer", "dak", "aok", "ikk", "bkk",
-    "kkh", "sbk", "hkk", "bitmarck", "itsc", "gesundheitswesen",
+    "kkh", "sbk", "hkk", "bitmarck", "itsc", "msg", "msg systems",
+    "arvato", "arvato systems", "materna", "adesso", "sopra steria",
+    "davaso", "spectrumk", "gevko", "aok systems", "gesundheitswesen",
     "healthcare", "health-it", "health it", "digital health", "e-health",
     "gesundheits-it", "krankenversicherung", "sozialversicherung",
     "bmg", "gkv-spitzenverband", "gematik", "bsi", "aok-bundesverband",
@@ -183,6 +191,13 @@ LINKEDIN_MARKET_QUERIES = [
     "BITMARCK-Partnertag",
     "ITSC Zukunftskongress",
     '"House of Health" BITMARCK',
+    "Krankenkasse Fusion",
+    "Kassenfusion GKV",
+    "BKK Fusion",
+    "GKV Dienstleister msg",
+    "GKV Dienstleister Arvato",
+    "GKV Dienstleister Materna",
+    "GKV Dienstleister Sopra Steria",
     "CDO DMEA Highlights Krankenkasse",
     "CIO DMEA Highlights Krankenkasse",
     "GKV IT",
@@ -206,6 +221,13 @@ NEWS_RSS_MARKET_QUERIES = [
     '"BITMARCK-Partnertag"',
     '"ITSC Zukunftskongress"',
     '"House of Health" BITMARCK',
+    '"Krankenkasse" Fusion',
+    '"Kassenfusion" GKV',
+    '"BKK" Fusion Krankenkasse',
+    '"msg" GKV Krankenkasse',
+    '"Arvato Systems" GKV Krankenkasse',
+    '"Materna" GKV Krankenkasse',
+    '"Sopra Steria" GKV Krankenkasse',
     '"GKV" "IT" Digitalisierung',
     '"Krankenkasse" Software Projekt',
     '"gesetzliche Krankenversicherung" KI Automatisierung',
@@ -222,6 +244,7 @@ NEWS_RSS_MARKET_QUERIES = [
 
 DEDICATED_GKV_PROVIDERS = {
     "bitmarck", "itsc", "aok systems", "gkv informatik", "gevko", "davaso", "spectrumk",
+    "msg", "msg systems", "arvato", "arvato systems", "materna", "adesso", "sopra steria",
 }
 
 DECISION_MAKER_TERMS = {
@@ -256,6 +279,7 @@ STRATEGIC_TOPIC_TERMS = {
     "interoperabilität", "interoperabilitaet", "diga", "e-rezept",
     "reform", "finanzierung", "finanzierungsdruck", "strukturreform",
     "versorgungsgesetz", "gesundheitsdatennutzung", "gedig",
+    "kundentag", "partnertag", "zukunftskongress", "house of health",
 }
 
 LINKEDIN_NOISE_TERMS = {
@@ -308,6 +332,8 @@ HARD_ACCOUNT_SIGNAL_TERMS = {
     "reform", "finanzierung", "finanzierungsdruck", "strukturreform",
     "gesundheitsdatennutzung", "gedig",
     "dienstleister", "bitmarck", "itsc", "aok systems", "gkv informatik",
+    "msg", "msg systems", "arvato", "arvato systems", "materna", "adesso",
+    "sopra steria", "davaso", "spectrumk", "gevko",
     "bitmarck kundentag", "bitmarck-kundentag", "bitmarck partnertag",
     "bitmarck-partnertag", "itsc zukunftskongress", "itsc-zukunftskongress",
     "house of health", "kundentag 2026", "messe highlights", "messe-highlights",
@@ -393,6 +419,21 @@ def _is_strategic_event_signal(text_blob: str) -> bool:
     ):
         return True
     return contains_any(blob, STRATEGIC_GKV_EVENT_TERMS) and contains_any(blob, EVENT_SUBSTANCE_TERMS)
+
+
+def _is_low_value_account_signal(text_blob: str) -> bool:
+    blob = (text_blob or "").lower()
+    if not contains_any(blob, LOW_VALUE_ACCOUNT_TERMS):
+        return False
+    hard_phrase_terms = {
+        "ausschreibung", "vergabe", "zuschlag", "auftrag", "plattform", "migration",
+        "go-live", "rollout", "cloud", "datenplattform", "api", "schnittstelle",
+        "epa", "e-pa", "telematikinfrastruktur", "gematik", "gedig", "nis2",
+        "kritis", "security", "cyber", "automatisierung", "dunkelverarbeitung",
+    }
+    has_hard_phrase = contains_any(blob, hard_phrase_terms)
+    has_hard_abbreviation = bool(re.search(r"\b(ki|ti|api)\b", blob))
+    return not (has_hard_phrase or has_hard_abbreviation)
 
 IMAGE_CACHE: dict[str, str] = {}
 IMAGE_FETCH_COUNT = 0
@@ -808,11 +849,20 @@ def build_editorial_source_items(all_research: str, limit: int | None = None) ->
         cleaned = strip_source_noise(raw_text)
         if len(cleaned) < 35:
             continue
+        context = split_source_context(raw_text)[1]
+        quality_blob = f"{item.get('section', '')} {item.get('kasse', '')} {cleaned} {context}".lower()
+        if _is_low_value_account_signal(quality_blob):
+            continue
+        if (
+            contains_any(quality_blob, EXCLUDE_TOPIC_TERMS)
+            and not _is_strategic_event_signal(quality_blob)
+            and not _hard_signal_reason(quality_blob)
+        ):
+            continue
         key = normalize_item_key(f"{url} {cleaned}")
         if key in seen:
             continue
         seen.add(key)
-        context = split_source_context(raw_text)[1]
         source_id = f"S{len(result) + 1:02d}"
         kind = source_kind(item, label, url)
         if kind == "LinkedIn":
@@ -918,6 +968,8 @@ def _flat_relevance(item: dict) -> str:
         return "Relevant, weil Leistungsbild, Zuständigkeiten oder Budgetfenster sichtbar werden und daraus Prozess-, Integrations-, Betriebs- oder Beratungsbedarf entstehen kann."
     if contains_any(blob, {"fusion", "zusammenschluss"}):
         return "Relevant, weil Konsolidierung typischerweise Datenmigration, Systemharmonisierung, Versichertenkommunikation, Serviceprozesse und Dienstleistersteuerung berührt."
+    if contains_any(blob, DEDICATED_GKV_PROVIDERS):
+        return "Relevant, weil ein GKV-naher Dienstleister sichtbar wird; daraus koennen Hinweise auf Plattformstrategie, Betriebsmodell, Projektbewegung, Abhaengigkeiten oder Wettbewerbsdynamik entstehen."
     if contains_any(blob, {"gematik", "epa", "e-pa", "ti ", "egk", "vsdm", "bsi", "nis2", "kritis", "gedig", "gesundheitsdatennutzung"}):
         return "Relevant, weil daraus Umsetzungsdruck bei Fristen, Schnittstellen, Kommunikation, Datenschutz, Sicherheit und Dienstleistersteuerung entstehen kann."
     if contains_any(blob, STRATEGIC_TOPIC_TERMS):
@@ -1844,6 +1896,9 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
         "ehealth", "e-health", "daten", "plattform", "interoperabilität",
         "interoperabilitaet", "telemedizin", "patienten", "epa", "e-pa", "ti",
         "gematik", "bsi", "nis2", "kritis", "datenschutz",
+        "kundentag", "partnertag", "zukunftskongress", "house of health",
+        "dienstleister", "bitmarck", "itsc", "msg", "arvato", "materna",
+        "sopra steria", "adesso", "davaso", "spectrumk", "gevko",
     }
     exclude_terms = {
         "prävention", "ratgeber", "bonus", "gesundheitstag", "gewinnspiel",
@@ -1877,7 +1932,9 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                 title_lower = title.lower()
                 if link in seen_links:
                     continue
-                if any(term in title_lower for term in exclude_terms):
+                if _is_low_value_account_signal(title_lower):
+                    continue
+                if any(term in title_lower for term in exclude_terms) and not _is_strategic_event_signal(title_lower):
                     continue
                 if not any(term in title_lower for term in include_terms):
                     continue
@@ -1901,12 +1958,22 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
     for kasse in kassen:
         company = kasse["name"]
         if kasse.get("type") == "provider":
-            queries = [(
-                f'"{company}" '
-                '(GKV OR Krankenkasse OR Krankenkassen OR AOK OR BKK OR TK OR BARMER OR DAK) '
-                '(Projekt OR Go-live OR Rollout OR Implementierung OR Migration OR Zuschlag OR Auftrag OR Kunde) '
-                f'after:{after_date}'
-            )]
+            queries = list(kasse.get("news_queries") or [])
+            queries.extend([
+                (
+                    f'"{company}" '
+                    '(GKV OR Krankenkasse OR Krankenkassen OR AOK OR BKK OR TK OR BARMER OR DAK) '
+                    '(Projekt OR Go-live OR Rollout OR Implementierung OR Migration OR Zuschlag OR Auftrag OR Kunde OR Plattform OR Cloud OR Daten OR KI) '
+                    f'after:{after_date}'
+                ),
+                (
+                    f'"{kasse.get("short", company)}" '
+                    '(GKV OR Krankenkasse OR Krankenkassen) '
+                    '(Projekt OR Plattform OR Cloud OR Daten OR KI OR Migration OR Betrieb OR Service) '
+                    f'after:{after_date}'
+                ),
+            ])
+            queries = [f"{query} after:{after_date}" if "after:" not in query else query for query in queries]
         elif kasse.get("type") == "institution":
             queries = kasse.get("news_queries") or [
                 f'"{company}" (GKV OR Krankenkasse OR ePA OR TI OR gematik OR Datenschutz OR NIS2 OR KRITIS OR Digitalisierung OR Gesetz OR Stellungnahme) after:{after_date}'
@@ -1940,7 +2007,9 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                     title_lower = title.lower()
                     if link in seen_links:
                         continue
-                    if any(term in title_lower for term in exclude_terms):
+                    if _is_low_value_account_signal(title_lower):
+                        continue
+                    if any(term in title_lower for term in exclude_terms) and not _is_strategic_event_signal(title_lower):
                         continue
                     if kasse.get("type") in {"provider", "institution"} and not any(term in title_lower for term in GKV_CONTEXT_TERMS | include_terms):
                         continue
@@ -2090,6 +2159,8 @@ def _prefilter_reason(text_blob: str, is_linkedin: bool) -> str:
     is_news_rss = "news/rss" in text_blob or " rss" in text_blob
     if _is_strategic_event_signal(text_blob):
         return ""
+    if _is_low_value_account_signal(text_blob):
+        return "Ausschluss: regionaler Vertriebs-/Praeventionshinweis ohne harten GKV-IT- oder Marktwert"
     if is_news_rss and not is_linkedin and contains_any(text_blob, GKV_CONTEXT_TERMS):
         return ""
     if is_linkedin and contains_any(text_blob, LINKEDIN_NOISE_TERMS | EXCLUDE_TOPIC_TERMS):
@@ -2112,6 +2183,8 @@ def _linkedin_quality_reject_reason(text_blob: str) -> str:
     blob = text_blob.lower()
     if _is_strategic_event_signal(blob):
         return ""
+    if _is_low_value_account_signal(blob):
+        return "LinkedIn regionaler Vertriebs-/Praeventionshinweis ohne harten GKV-IT-Wert"
     if contains_any(blob, LINKEDIN_HARD_EXCLUDE_TERMS):
         return "LinkedIn fachfremd oder nur Consumer-/Event-/Follower-Signal"
     if contains_any(blob, LINKEDIN_NOISE_TERMS | EXCLUDE_TOPIC_TERMS):
@@ -2134,9 +2207,12 @@ def _hard_signal_reason(text_blob: str) -> str:
     blob = text_blob.lower()
     if _is_strategic_event_signal(blob):
         return "Strategisches GKV-IT-Event mit Relevanz fuer Plattform-, Produkt-, Daten-, Cloud-, KI-, Service-, Betriebs- oder Dienstleisterthemen."
+    if _is_low_value_account_signal(blob):
+        return ""
     if contains_any(blob, LINKEDIN_NOISE_TERMS | LINKEDIN_HARD_EXCLUDE_TERMS):
         return ""
-    if not contains_any(blob, HARD_ACCOUNT_SIGNAL_TERMS):
+    has_hard_term = contains_any(blob, HARD_ACCOUNT_SIGNAL_TERMS) or bool(re.search(r"\b(ki|ti|api)\b", blob))
+    if not has_hard_term:
         return ""
     if not (
         contains_any(blob, GKV_CONTEXT_TERMS)
@@ -2145,13 +2221,13 @@ def _hard_signal_reason(text_blob: str) -> str:
         return ""
     if contains_any(blob, {"fusion", "zusammenschluss"}):
         return "Fusions-/Konsolidierungssignal mit moeglichen Folgen fuer IT-Migration, Plattformen, Prozesse und Versichertenkommunikation."
-    if contains_any(blob, {"epa", "e-pa", "egk", "vsdm", "ti ", "telematik", "gematik"}):
+    if contains_any(blob, {"epa", "e-pa", "egk", "vsdm", "ti ", "telematik", "gematik"}) or re.search(r"\bti\b", blob):
         return "Regulatorisches TI-/ePA-/gematik-Signal mit Umsetzungsdruck fuer Schnittstellen, Betrieb und Kommunikation."
     if contains_any(blob, {"bsi", "nis2", "kritis", "b3s", "c5", "datenschutz", "informationssicherheit", "security", "cyber"}):
         return "Security-/Compliance-Signal mit Relevanz fuer Betrieb, Dienstleistersteuerung und Verantwortlichkeiten."
     if contains_any(blob, {"ausschreibung", "vergabe", "zuschlag", "auftrag", "beschaffung"}):
         return "Beschaffungsnahes Signal mit moeglichem Bedarf an Prozess-, Integrations-, Betriebs- oder Beratungsleistung."
-    if contains_any(blob, {"go-live", "golive", "rollout", "implementierung", "migration", "plattform", "cloud", "portal", "app", "servicecenter", "automatisierung"}):
+    if contains_any(blob, {"go-live", "golive", "rollout", "implementierung", "migration", "plattform", "cloud", "portal", "app", "servicecenter", "automatisierung"}) or re.search(r"\b(ki|api)\b", blob):
         return "Konkretes IT-/Digital-/Betriebssignal mit moeglichen Folgen fuer Umsetzung, Integration oder Serviceprozesse."
     return "Belastbares GKV-/Health-IT-Signal mit fachlichem Account-Bezug."
 
@@ -2233,8 +2309,8 @@ Themenbreite:
 - Breite GKV-IT-Themen behalten: Fusionen, gemeinsame IT-Projekte, Kooperationen, Plattformverbünde, Dienstleisterwechsel, Shared Services, Daten-/KI-/Automatisierungsvorhaben, App-/Portal-/Serviceprozesse, Cloud/Betrieb/Security und Versorgungsprogramme mit Prozess- oder Datenfolge.
 
 RSS-/Kassenfeed-Regel:
-- Kassen-eigene RSS-/News-Signale nicht zu eng filtern. Auch weichere Themen behalten, wenn sie Positionierung, Versorgungsstrategie, Prävention, Service, Mitgliederkommunikation, Kooperationen, politische Haltung oder Prioritaeten einer relevanten Kasse zeigen.
-- Diese Signale nicht als harte IT-Chance ausgeben, sondern fachlich bewerten: Was zeigt es ueber Agenda, Zielgruppen, Kommunikationsdruck, Versorgungslogik oder moegliche Prozess-/Servicefolgen?
+- Kassen-eigene RSS-/News-Signale nur behalten, wenn sie einen konkreten strategischen oder operativen Account-Wert haben: IT/Digitalisierung, ePA/TI, Daten/KI, Service-/Prozessmodernisierung, Beschaffung, Fusion/Konsolidierung, Dienstleister, Regulatorik, Plattform/Betrieb oder belastbare Versorgungskooperation mit Prozess-/Datenfolge.
+- Reine Präventions-, Gesundheitsratgeber-, Regional-, Sponsoring-, Messe- oder Firmenkunden-PR ist raus. Nicht aus einem weichen Thema nachträglich eine IT-Chance konstruieren.
 
 Politik-/Regulatorik-Regel:
 - Harte Fakten aus BMG, Bundestag/Bundesrat, GKV-Spitzenverband, gematik, BSI, Datenschutzaufsicht, Verbänden und Fachmedien hoch priorisieren, wenn sie Fristen, Pflichten, Finanzierungsfragen, TI/ePA/eGK, Versorgung, Datenschutz, Sicherheit oder Kassenorganisation betreffen.
@@ -3349,8 +3425,7 @@ def main() -> None:
 
     print(f"🏥 KassenInfodienst – Starte Recherche")
     print(f"   Kassen:    {len(kassen)}")
-    args.tage = 7
-    print(f"   Zeitraum:  letzte {args.tage} Tage (hart begrenzt)")
+    print(f"   Zeitraum:  letzte {args.tage} Tage")
     print(f"   Ausgabe:   {output_path}")
     print()
 
