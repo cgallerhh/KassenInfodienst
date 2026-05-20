@@ -1,5 +1,18 @@
+# Quick Note 2026-05-19 18:18:11
+
+- captured: 2026-05-19 18:18:11
+- source: WISSEN Quick Capture
+- vault: WISSEN
+- status: raw inbox
+
+---
+
 """
 Top 31 gesetzliche Krankenkassen in Deutschland (Account-Liste nach Mitgliederzahl).
+
+Diese Krankenkassen sind für mich als Account Manager relevant. dazu sind die passenden LinkedIN Firmenpages verlinkt. Gleiches gil tauch für die anderen aufgeführten Player im Gesudnheitswesen.
+
+
 """
 
 KASSEN = [
@@ -368,8 +381,7 @@ BEOBACHTETE_INSTITUTIONEN = [
     },
 ]
 
-# GKV-IT-Dienstleister: werden nur im LinkedIn-Radar beobachtet,
-# nicht im Web-Research-Batch oder TED-Abruf.
+# GKV-IT-Dienstleister:
 BEOBACHTETE_ORGS = [
     {
         "name": "BITMARCK Unternehmensgruppe",
@@ -492,172 +504,3 @@ BEOBACHTETE_ORGS = [
         "linkedin_url": "https://www.linkedin.com/company/soprasteria/",
     },
 ]
-
-# Branchenstimmen: Personen, deren LinkedIn-/News-Signale fuer einen grossen
-# GKV-, Health-IT- und KI-Newsletter relevant sind, auch wenn ein Post nicht
-# jedes Mal eine konkrete Krankenkasse nennt.
-BEOBACHTETE_PERSONEN = [
-    {
-        "name": "Prof. Dr. David Matusiewicz",
-        "short": "David Matusiewicz",
-        "type": "influencer",
-        "domain": "matusiewicz.de",
-        "url": "https://www.david-matusiewicz.com",
-        "linkedin_search": "Prof. Dr. David Matusiewicz",
-        "linkedin_queries": [
-            '"David Matusiewicz" Health IT',
-            '"Prof. Dr. David Matusiewicz" KI Gesundheit',
-            '"David Matusiewicz" Digitalisierung Gesundheitswesen',
-            '"David Matusiewicz" Krankenkasse GKV',
-        ],
-        "news_queries": [
-            '"David Matusiewicz" "KI" Gesundheit',
-            '"David Matusiewicz" Digitalisierung Gesundheitswesen',
-            '"David Matusiewicz" Health IT',
-        ],
-        "linkedin_url": "https://www.linkedin.com/in/david-matusiewicz/",
-    },
-    {
-        "name": "Stefan Schellberg",
-        "short": "Stefan Schellberg",
-        "type": "top_voice",
-        "domain": "ikk-classic.de",
-        "url": "https://www.ikk-classic.de",
-        "linkedin_search": "Stefan Schellberg IKK classic CDO",
-        "linkedin_queries": [
-            '"Stefan Schellberg" "IKK classic"',
-            '"Stefan Schellberg" CDO Krankenkasse',
-            '"Stefan Schellberg" Digitalisierung GKV',
-        ],
-        "news_queries": [
-            '"Stefan Schellberg" "IKK classic" Digitalisierung',
-            '"Stefan Schellberg" GKV IT',
-        ],
-    },
-    {
-        "name": "Andreas Strausfeld",
-        "short": "Andreas Strausfeld",
-        "type": "top_voice",
-        "domain": "bitmarck.de",
-        "url": "https://www.bitmarck.de",
-        "linkedin_search": "Andreas Strausfeld BITMARCK CEO",
-        "linkedin_queries": [
-            '"Andreas Strausfeld" BITMARCK',
-            '"Andreas Strausfeld" GKV IT',
-            '"Andreas Strausfeld" Krankenkasse Digitalisierung',
-        ],
-        "news_queries": [
-            '"Andreas Strausfeld" BITMARCK',
-            '"Andreas Strausfeld" GKV IT',
-        ],
-    },
-    {
-        "name": "Dieter Loewe",
-        "short": "Dieter Loewe",
-        "type": "top_voice",
-        "domain": "itsc.de",
-        "url": "https://www.itsc.de",
-        "linkedin_search": "Dieter Loewe ITSC Hannover CEO",
-        "linkedin_queries": [
-            '"Dieter Loewe" ITSC',
-            '"Dieter Löwe" ITSC',
-            '"Dieter Loewe" GKV IT',
-            '"Dieter Löwe" GKV IT',
-        ],
-        "news_queries": [
-            '"Dieter Loewe" ITSC Hannover',
-            '"Dieter Löwe" ITSC Hannover',
-            '"Dieter Loewe" GKV IT',
-        ],
-    },
-    {
-        "name": "DAK-Gesundheit Pressestelle",
-        "short": "DAK Pressestelle",
-        "type": "top_voice",
-        "domain": "dak.de",
-        "url": "https://www.dak.de",
-        "linkedin_search": "DAK-Gesundheit Pressestelle Kommunikation",
-        "linkedin_queries": [
-            '"DAK-Gesundheit" Pressestelle',
-            '"DAK-Gesundheit" Unternehmenskommunikation',
-            '"DAK" Pressesprecher Digitalisierung Gesundheit',
-            '"DAK" Kommunikation GKV Politik',
-        ],
-        "news_queries": [
-            'site:dak.de Presse Digitalisierung DAK',
-            'site:dak.de Presse GKV Politik DAK',
-        ],
-        "linkedin_url": "https://www.linkedin.com/company/dak-gesundheit/",
-    },
-]
-
-from pathlib import Path
-import re
-
-TARGET_LIST_PRIMARY = Path('/mnt/data/kassen und linked In Liste.md')
-TARGET_LIST_REPO = Path(__file__).resolve().parent / 'data' / 'kassen-und-linkedin-liste.md'
-
-def _parse_target_list(md_text: str) -> list[dict]:
-    entries, cur = [], {}
-    for raw in md_text.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        if line.startswith(('-', '*')):
-            line = line[1:].strip()
-
-        m_name = re.search(r'^(?:Kasse|Name|Organisation)\s*:\s*(.+)$', line, re.I)
-        m_short = re.search(r'^(?:Short|Kurzname)\s*:\s*(.+)$', line, re.I)
-        m_domain = re.search(r'^(?:Domain|Webseite|Website)\s*:\s*(https?://[^\s]+|[^\s]+)$', line, re.I)
-        m_linkedin_url = re.search(r'(https?://(?:www\.)?linkedin\.com/[^\s\)]+)', line, re.I)
-        m_linkedin_search = re.search(r'^(?:LinkedIn Suche|LinkedIn-Suche|LinkedIn Search)\s*:\s*(.+)$', line, re.I)
-
-        if m_name:
-            if cur.get('name'):
-                entries.append(cur)
-                cur = {}
-            cur['name'] = m_name.group(1).strip()
-            cur.setdefault('short', cur['name'][:24])
-            continue
-        if m_short:
-            cur['short'] = m_short.group(1).strip()
-            continue
-        if m_domain:
-            d = m_domain.group(1).strip().replace('https://', '').replace('http://', '').strip('/').split('/')[0]
-            cur['domain'] = d
-            cur.setdefault('url', f'https://{d}')
-            continue
-        if m_linkedin_search:
-            cur['linkedin_search'] = m_linkedin_search.group(1).strip()
-            continue
-        if m_linkedin_url:
-            cur['linkedin_url'] = m_linkedin_url.group(1).strip()
-            cur.setdefault('linkedin_search', cur.get('name', ''))
-            continue
-
-    if cur.get('name'):
-        entries.append(cur)
-
-    out = []
-    for e in entries:
-        if not e.get('name'):
-            continue
-        e.setdefault('short', e['name'][:24])
-        e.setdefault('domain', '')
-        if not e.get('url') and e['domain']:
-            e['url'] = f"https://{e['domain']}"
-        e.setdefault('linkedin_search', e['name'])
-        e.setdefault('linkedin_url', '')
-        out.append(e)
-    return out
-
-def load_target_kassen() -> list[dict]:
-    for path in (TARGET_LIST_PRIMARY, TARGET_LIST_REPO):
-        try:
-            if path.exists():
-                parsed = _parse_target_list(path.read_text(encoding='utf-8'))
-                if len(parsed) >= 20:
-                    return parsed
-        except Exception:
-            pass
-    return KASSEN
