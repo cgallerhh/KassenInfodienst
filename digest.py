@@ -59,6 +59,19 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
+def env_bool(name: str, default: bool = False) -> bool:
+    """Liest optionale Boolean-Flags aus GitHub-Env/Vars robust."""
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "ja", "on"}:
+        return True
+    if raw in {"0", "false", "no", "nein", "off"}:
+        return False
+    print(f"   ⚠️  {name}={raw!r} ist kein Boolean, nutze {default}.", file=sys.stderr)
+    return default
+
+
 # Lade .env-Datei falls vorhanden (pip install python-dotenv)
 try:
     from dotenv import load_dotenv
@@ -94,6 +107,7 @@ NEWS_RSS_MARKET_LIMIT = env_int("NEWS_RSS_MARKET_LIMIT", 50)
 ENABLE_LINKEDIN_VOYAGER = os.environ.get("ENABLE_LINKEDIN_VOYAGER", "").lower() in {"1", "true", "yes"}
 ENABLE_SOURCE_IMAGES = os.environ.get("ENABLE_SOURCE_IMAGES", "true").lower() in {"1", "true", "yes"}
 ENABLE_PERSONEN_RADAR = os.environ.get("ENABLE_PERSONEN_RADAR", "true").lower() in {"1", "true", "yes"}
+ENABLE_TED_TENDERS = env_bool("ENABLE_TED_TENDERS", False)
 
 RESEARCH_MODEL = os.environ.get("OPENAI_RESEARCH_MODEL") or "gpt-5-nano"
 SCORING_MODEL = os.environ.get("OPENAI_SCORING_MODEL") or "gpt-5-nano"
@@ -1625,6 +1639,40 @@ def _parse_rss_xml(xml_text: str, cutoff: date) -> list[tuple[str, str]]:
     return results
 
 
+def _rss_publisher_from_title(title: str) -> str:
+    """Google-News-RSS-Titel enthalten den Publisher meist nach dem letzten ' - '."""
+    parts = [part.strip() for part in (title or "").rsplit(" - ", 1)]
+    if len(parts) == 2 and parts[1]:
+        return parts[1]
+    return ""
+
+
+def _write_news_rss_audit(entries: list[dict], today: date) -> None:
+    """Speichert die angenommenen News-RSS-Treffer transparent ab."""
+    if not entries:
+        return
+    REPORTS_DIR.mkdir(exist_ok=True)
+    json_path = REPORTS_DIR / f"news_rss_sources_{today.isoformat()}.json"
+    md_path = REPORTS_DIR / f"news_rss_sources_{today.isoformat()}.md"
+    json_path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    lines = [
+        f"# News-RSS-Quellen {today.strftime('%d.%m.%Y')}",
+        "",
+        "| Bereich | Organisation | Publisher | Titel | Link |",
+        "|---|---|---|---|---|",
+    ]
+    for entry in entries:
+        title = str(entry.get("title", "")).replace("|", "\\|")
+        publisher = str(entry.get("publisher", "")).replace("|", "\\|")
+        group = str(entry.get("group", "")).replace("|", "\\|")
+        org = str(entry.get("organization", "")).replace("|", "\\|")
+        link = str(entry.get("link", "")).strip()
+        link_md = f"[Quelle]({link})" if link else ""
+        lines.append(f"| {group} | {org} | {publisher} | {title} | {link_md} |")
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def scrape_linkedin_voyager(kassen: list[dict], tage: int) -> str:
     """Scraped LinkedIn-Unternehmensseiten direkt via li_at-Session-Cookie.
 
@@ -1916,6 +1964,7 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
 
     all_findings: list[str] = []
     seen_links: set[str] = set()
+    rss_audit: list[dict] = []
 
     market_findings: list[str] = []
     for query in NEWS_RSS_MARKET_QUERIES:
@@ -1941,6 +1990,14 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                 if not any(term in title_lower for term in GKV_CONTEXT_TERMS):
                     continue
                 seen_links.add(link)
+                rss_audit.append({
+                    "group": "GKV & IT Markt",
+                    "organization": "Markt",
+                    "publisher": _rss_publisher_from_title(title),
+                    "title": title,
+                    "link": link,
+                    "query": query,
+                })
                 line = f"  - {title} → {source_link(link)}"
                 market_findings.append(add_source_preview(line, link))
                 if len(market_findings) >= NEWS_RSS_MARKET_LIMIT:
@@ -2016,6 +2073,14 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
                     if not any(term in title_lower for term in include_terms):
                         continue
                     seen_links.add(link)
+                    rss_audit.append({
+                        "group": "Account/Organisation",
+                        "organization": kasse.get("short") or company,
+                        "publisher": _rss_publisher_from_title(title),
+                        "title": title,
+                        "link": link,
+                        "query": query,
+                    })
                     line = f"  - {title} → {source_link(link)}"
                     findings.append(add_source_preview(line, link))
                     if len(findings) >= 4:
@@ -2032,6 +2097,7 @@ def scrape_news_rss(kassen: list[dict], tage: int) -> str:
 
     if not all_findings:
         return ""
+    _write_news_rss_audit(rss_audit, today)
     lines = ["## 📰 News-RSS-Findings (schneller Scheduled-Run)\n"]
     lines.extend(all_findings)
     return "\n".join(lines)
@@ -3435,16 +3501,20 @@ def main() -> None:
         print("👥 Personen-Radar übersprungen (ENABLE_PERSONEN_RADAR nicht gesetzt; vermeidet Personen-Übergewicht).")
         print()
 
-    # TED-Ausschreibungen vorab abrufen (1 API-Call für alle Kassen)
-    print("📋 TED-Ausschreibungen abrufen ...")
-    # TED: mindestens 30 Tage Fenster (GKV-Ausschreibungen kommen selten)
-    ted_section = search_ted_tenders(kassen, max(args.tage, 30))
-    if ted_section:
-        count = ted_section.count("\n- ")
-        print(f"   ✅ {count} Ausschreibung(en) gefunden.")
+    ted_section = ""
+    if ENABLE_TED_TENDERS:
+        print("📋 TED-Ausschreibungen abrufen ...")
+        # TED: mindestens 30 Tage Fenster (GKV-Ausschreibungen kommen selten)
+        ted_section = search_ted_tenders(kassen, max(args.tage, 30))
+        if ted_section:
+            count = ted_section.count("\n- ")
+            print(f"   ✅ {count} Ausschreibung(en) gefunden.")
+        else:
+            print("   ℹ️  Keine TED-Ausschreibungen im Zeitraum gefunden.")
+        print()
     else:
-        print("   ℹ️  Keine TED-Ausschreibungen im Zeitraum gefunden.")
-    print()
+        print("📋 TED-Ausschreibungen übersprungen (ENABLE_TED_TENDERS nicht gesetzt).")
+        print()
 
     # Schneller Scheduled-Standard: deterministische News-RSS-Suche statt OpenAI Web Search.
     print("📰 News-RSS abrufen ...")
