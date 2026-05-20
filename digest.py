@@ -66,7 +66,10 @@ try:
 except ImportError:
     pass
 
-from kassen import KASSEN, BEOBACHTETE_INSTITUTIONEN, BEOBACHTETE_ORGS, BEOBACHTETE_PERSONEN
+from kassen import KASSEN, BEOBACHTETE_INSTITUTIONEN, BEOBACHTETE_ORGS, BEOBACHTETE_PERSONEN, load_target_kassen
+
+# Zielkassen werden vorrangig aus der verbindlichen Markdown-Datei geladen.
+KASSEN = load_target_kassen()
 
 BATCH_SIZE = 5          # Mehrere Accounts pro Web-Research-Call, damit Weekly unter dem Actions-Limit bleibt
 MAX_SEARCHES = 6        # Gezielte Suchen pro Batch
@@ -3361,11 +3364,12 @@ def main() -> None:
 
     # Ausgabedatei bestimmen
     REPORTS_DIR.mkdir(exist_ok=True)
-    output_path = Path(args.output) if args.output else REPORTS_DIR / f"digest_{today.strftime('%Y-%m-%d')}.md"
+    output_path = Path(args.output) if args.output else REPORTS_DIR / f"gkv-briefing-{today.strftime('%Y-%m-%d')}.md"
 
     print(f"🏥 KassenInfodienst – Starte Recherche")
     print(f"   Kassen:    {len(kassen)}")
-    print(f"   Zeitraum:  letzte {args.tage} Tage")
+    args.tage = 7
+    print(f"   Zeitraum:  letzte {args.tage} Tage (hart begrenzt)")
     print(f"   Ausgabe:   {output_path}")
     print()
 

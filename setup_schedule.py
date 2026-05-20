@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Richtet den wöchentlichen KassenInfodienst auf dem Mac ein.
-Erstellt einen LaunchAgent, der jeden Freitag um 07:00 Uhr den Digest startet
+Erstellt einen LaunchAgent, der jeden Freitag um 09:00 Uhr den Digest startet
 und per E-Mail verschickt.
 
 Ausführen (einmalig):
@@ -21,7 +21,7 @@ def main() -> None:
     # Pfade ermitteln
     project_dir = Path(__file__).parent.resolve()
     python_bin = Path(sys.executable).resolve()
-    digest_script = project_dir / "digest.py"
+    digest_script = project_dir / "digest_account.py"
     log_dir = project_dir / "logs"
     log_dir.mkdir(exist_ok=True)
 
@@ -31,8 +31,8 @@ def main() -> None:
     print()
 
     # Uhrzeit abfragen
-    hour_input = input("⏰ Uhrzeit (Stunde, 0–23, Standard 7): ").strip()
-    hour = int(hour_input) if hour_input.isdigit() else 7
+    hour_input = input("⏰ Uhrzeit (Stunde, 0–23, Standard 9): ").strip()
+    hour = int(hour_input) if hour_input.isdigit() else 9
 
     minute_input = input("⏰ Minute (0–59, Standard 0): ").strip()
     minute = int(minute_input) if minute_input.isdigit() else 0
@@ -109,7 +109,7 @@ def main() -> None:
     print("📋 Nächste Schritte:")
     print("   1. Gmail App-Passwort in .env eintragen (GMAIL_USER, GMAIL_APP_PASSWORD)")
     print("   2. Empfänger in .env eintragen (RECIPIENT_EMAIL)")
-    print("   3. Jetzt testen: python3 digest.py --kassen TK --email")
+    print("   3. Jetzt testen: python3 digest_account.py --kassen TK --email")
     print()
     print("   Logs:")
     print(f"   tail -f {log_dir}/weekly.log")
