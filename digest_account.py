@@ -15,7 +15,6 @@ import digest
 
 
 _BASE_BUILD_SOURCE_BASED_NEWSLETTER = digest.build_source_based_newsletter
-_BASE_GENERATE_EXECUTIVE_SUMMARY = digest.generate_executive_summary
 
 
 ACCOUNT_INTELLIGENCE_SYSTEM = """
@@ -29,17 +28,14 @@ Dazu zaehlen auch Fusionen, gemeinsame IT-Projekte, Kassenkooperationen,
 Plattform-/Betriebsthemen, Daten/KI/Automatisierung, Serviceprozesse und
 Versorgungsprogramme mit operativer Folge.
 
-Der bestehende KassenInfodienst bleibt als Branchenbrief erkennbar:
-Management Summary, Top-Themen, Kassenradar, Institutionen-/Politikradar,
-IT-/Digital-/Beschaffungssignale, LinkedIn-Entscheidersignale,
-Marktsignale, Account-Management-Briefing und Quellenuebersicht. Rubriken
-werden nur befuellt, wenn es belastbares Material gibt.
+Der KassenInfodienst ist kein Rubriken-Newsletter mehr. Keine Management
+Summary, keine Top-Themen, kein Kassenradar, keine Quellenuebersicht, kein
+optisches Aufplustern. Ausgabe ist eine kurze, deduplizierte Liste relevanter
+Fundstuecke.
 
-Jede relevante Quelle muss in Account-Logik uebersetzt werden:
-- Was ist das Signal?
-- Warum erzeugt es Druck, Risiko oder Bewegung im GKV-/Health-IT-Markt?
-- Welche Kassen, Dienstleister, IT-Landschaften oder Rollen koennten betroffen sein?
-- Welche fachliche Account-Bedeutung ergibt sich daraus?
+Jedes relevante Fundstueck muss in Account-Logik uebersetzt werden:
+Was steht drin und warum ist es fuer GKV-IT, Service, Prozesse, Daten, KI,
+Regulierung, Dienstleister oder Account Management relevant?
 
 Schreibe nicht: "Die gematik hat X veroeffentlicht."
 Schreibe: "Das erhoeht den Umsetzungsdruck bei Kassen mit heterogener
@@ -47,8 +43,8 @@ IT-Landschaft. Fuer BITMARCK-/ITSC-nahe Kassen kann daraus Beratungsbedarf bei
 Prozess-, Integrations- und Betriebsmodellen entstehen."
 
 Keine Rohdatenoptik, keine Artikelkarten, keine generischen Quellenresuemes,
-keine Debug-Begriffe, keine Erklaerbaer-Passagen. Quellen transparent und kurz
-belegen, aber nicht als Linksammlung schreiben.
+keine Debug-Begriffe, keine Erklaerbaer-Passagen. Quelle nur als Markdown-Link
+`[Quelle](URL)`, ohne Beschreibung.
 
 Der Leser ist Fachspezialist mit gutem Markteinblick. Streng gegen Rauschen,
 aber nicht blind gegen Substanz: Fusionen, ePA/TI/gematik, BSI/KRITIS/NIS2,
@@ -149,13 +145,13 @@ def _dedupe_account_items(items: list[dict], limit: int = 8) -> list[dict]:
 
 
 def build_account_intelligence_fallback(all_research: str, today: date) -> str:
-    """Use the shared Branchenbrief fallback; do not reduce the output to one section."""
+    """Use the compact deterministic item list."""
     return _BASE_BUILD_SOURCE_BASED_NEWSLETTER(all_research, today)
 
 
 def generate_account_intelligence_summary(client: digest.openai.OpenAI, all_research: str, today: date) -> str:
-    """Use the shared model briefing with the account-intelligence system addendum."""
-    return _BASE_GENERATE_EXECUTIVE_SUMMARY(client, all_research, today)
+    """Avoid the slow long-form newsletter model; build the compact list directly."""
+    return _BASE_BUILD_SOURCE_BASED_NEWSLETTER(all_research, today)
 
 
 # Patch the editorial layer before digest.main() runs.

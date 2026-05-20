@@ -789,6 +789,105 @@ def build_editorial_source_pack(all_research: str, limit: int | None = None) -> 
     return "\n\n".join(blocks), items
 
 
+def _flat_source_link(item: dict) -> str:
+    url = (item.get("url") or "").strip().rstrip(".,;")
+    return f"[Quelle]({url})" if url else ""
+
+
+def _flat_clean_phrase(text: str) -> str:
+    cleaned = clean_visible_source_text(text or "")
+    cleaned = strip_source_noise(cleaned)
+    cleaned = re.sub(r"\b(Signal|Einordnung|Quelle)\s*:\s*", "", cleaned, flags=re.I)
+    cleaned = re.sub(
+        r"^(Management|Top[- ]?Thema|Kassenradar|Institutionen/Politik|IT/Digital/Beschaffung|LinkedIn|Marktsignal|Marktquelle|News/RSS|Quelle)\s+",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    cleaned = re.sub(
+        r"^(Management|Top[- ]?Thema|Kassenradar|Institutionen/Politik|IT/Digital/Beschaffung|LinkedIn|Marktsignal|Marktquelle|News/RSS|Quelle)\s+",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    cleaned = re.sub(
+        r"\bKonkretes Digital-/IT-/Prozesssignal mit moeglicher Folge fuer Betrieb, Service, Daten oder Plattformen\.?",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    cleaned = re.sub(
+        r"\bRegulatorik- oder Betriebsdruck: Kassen muessen Fristen, Schnittstellen, Kommunikation, Sicherheit und Dienstleistersteuerung operativ zusammenbringen\.?",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    return re.sub(r"\s+", " ", cleaned).strip(" -*:")
+
+
+def _flat_title(item: dict) -> str:
+    title = _flat_clean_phrase(item.get("headline", "") or item.get("org", "") or "Fundstueck")
+    title = re.sub(r"^(Markt|Quelle|News/RSS|LinkedIn)\s*:\s*", "", title, flags=re.I)
+    title = re.sub(r"\s+", " ", title).strip(" -*:")
+    return title[:120].rstrip() or "Fundstueck"
+
+
+def _flat_relevance(item: dict) -> str:
+    blob = f"{item.get('org', '')} {item.get('headline', '')} {item.get('text', '')}".lower()
+    if item.get("kind") == "Vergabe":
+        return "Relevant, weil Leistungsbild, Zuständigkeiten oder Budgetfenster sichtbar werden und daraus Prozess-, Integrations-, Betriebs- oder Beratungsbedarf entstehen kann."
+    if contains_any(blob, {"fusion", "zusammenschluss"}):
+        return "Relevant, weil Konsolidierung typischerweise Datenmigration, Systemharmonisierung, Versichertenkommunikation, Serviceprozesse und Dienstleistersteuerung berührt."
+    if contains_any(blob, {"gematik", "epa", "e-pa", "ti ", "egk", "vsdm", "bsi", "nis2", "kritis", "gedig", "gesundheitsdatennutzung"}):
+        return "Relevant, weil daraus Umsetzungsdruck bei Fristen, Schnittstellen, Kommunikation, Datenschutz, Sicherheit und Dienstleistersteuerung entstehen kann."
+    if contains_any(blob, STRATEGIC_TOPIC_TERMS):
+        return "Relevant als Hinweis auf Digital-, IT-, Daten-, Service- oder Prozessbedarf im GKV-Umfeld."
+    return ""
+
+
+def _flat_summary_text(item: dict, limit: int = 520) -> str:
+    title = _flat_title(item)
+    raw = item.get("context") or item.get("text") or ""
+    text = _flat_clean_phrase(readable_source_text(raw))
+    text = re.sub(r"^(Markt|Quelle|News/RSS|LinkedIn)\s*:\s*", "", text, flags=re.I)
+    text = re.sub(r"\s+", " ", text).strip(" -*:")
+    if text.lower().startswith(title.lower()):
+        text = text[len(title):].strip(" :-")
+    relevance = _flat_relevance(item)
+    combined = f"{title}: {text}" if text else title
+    if relevance and relevance.lower() not in combined.lower():
+        combined = f"{combined} {relevance}"
+    combined = re.sub(r"\s+", " ", combined).strip()
+    if len(combined) > limit:
+        combined = combined[: limit - 3].rstrip() + "..."
+    return combined
+
+
+def _dedupe_flat_items(items: list[dict], limit: int | None = None) -> list[dict]:
+    deduped: list[dict] = []
+    seen_urls: set[str] = set()
+    seen_titles: set[str] = set()
+    seen_texts: set[str] = set()
+    for item in items:
+        url = (item.get("url") or "").strip().rstrip(".,;")
+        title_key = normalize_item_key(_flat_title(item))
+        text_key = normalize_item_key(_flat_summary_text(item, limit=320))
+        if url and url in seen_urls:
+            continue
+        if title_key and title_key in seen_titles:
+            continue
+        if text_key and text_key in seen_texts:
+            continue
+        if url:
+            seen_urls.add(url)
+        seen_titles.add(title_key)
+        seen_texts.add(text_key)
+        deduped.append(item)
+        if limit and len(deduped) >= limit:
+            break
+    return deduped
+
+
 def newsletter_needs_repair(text: str, source_count: int = 0) -> bool:
     """Erkennt Outputs, die noch wie Rohdaten statt Branchenbrief wirken."""
     cleaned = text or ""
@@ -812,6 +911,18 @@ def newsletter_needs_repair(text: str, source_count: int = 0) -> bool:
         "Zahnzusatzversicherung",
         "WINGCOPTER",
         "University of Kassel",
+        "## Management Summary",
+        "## Top-Themen",
+        "## Kassenradar",
+        "## Institutionen",
+        "## IT-, Digital",
+        "## LinkedIn",
+        "## Marktsignale",
+        "## Relevanz fuer mich",
+        "## Quellenuebersicht",
+        "**Signal:**",
+        "**Einordnung:**",
+        "**Quelle:**",
     )
     if any(marker in cleaned for marker in raw_markers):
         return True
@@ -2197,135 +2308,30 @@ def build_observation_radar(all_research: str) -> str:
 
 
 def build_source_based_newsletter(all_research: str, today: date) -> str:
-    """Redaktioneller Fallback im bestehenden Branchenbriefing-Aufbau."""
+    """Kompakter Fallback: eine deduplizierte Fundstueckliste ohne Rubriken."""
     items = build_editorial_source_items(all_research)
     if not items:
         return build_empty_summary(0, today)
 
-    def relevance(item: dict) -> str:
-        blob = f"{item.get('org', '')} {item.get('headline', '')} {item.get('text', '')}".lower()
-        if item["kind"] == "Vergabe":
-            return (
-                "Beschaffungsnaehe: Fristen, Zustaendigkeiten, Leistungsbild und Budgetfenster werden sichtbar. "
-                "Fuer Account Management ist wichtig, ob Prozess-, Integrations-, Betriebs- oder Beratungsleistung gefragt ist."
-            )
-        if contains_any(blob, {"fusion", "zusammenschluss"}):
-            return (
-                "Konsolidierungssignal: Fusionen oder Zusammenschluesse erzeugen typischerweise Fragen zu "
-                "Bestandssystemen, Datenmigration, Versichertenkommunikation, Serviceprozessen und Dienstleisterlandschaft."
-            )
-        if contains_any(blob, {"gematik", "epa", "e-pa", "ti ", "egk", "vsdm", "bsi", "nis2", "kritis"}):
-            return (
-                "Regulatorik- oder Betriebsdruck: Kassen muessen Fristen, Schnittstellen, Kommunikation, "
-                "Sicherheit und Dienstleistersteuerung operativ zusammenbringen."
-            )
-        if contains_any(blob, STRATEGIC_TOPIC_TERMS):
-            return "Konkretes Digital-/IT-/Prozesssignal mit moeglicher Folge fuer Betrieb, Service, Daten oder Plattformen."
-        return ""
-
-    relevant_items = [item for item in items if relevance(item)]
+    relevant_items = [item for item in items if _flat_relevance(item)]
     if not relevant_items:
         return build_empty_summary(len(items), today)
+    relevant_items = _dedupe_flat_items(relevant_items, limit=min(MAX_NEWSLETTER_SOURCES, 12))
 
-    def source_line(item: dict) -> str:
-        link = f"[{item['kind']}]({item['url']})" if item["url"] else item["kind"]
-        return f"{item['org']}: {item['headline']} - {link}"
+    lines: list[str] = []
+    for item in relevant_items:
+        link = _flat_source_link(item)
+        line = f"- {_flat_summary_text(item)}"
+        if link:
+            line = f"{line}\n  {link}"
+        lines.append(line)
 
-    def block(item: dict) -> list[str]:
-        text = item["text"][:700].rstrip()
-        return [
-            f"### {item['org']}: {item['headline']}",
-            "",
-            f"**Signal:** {text}",
-            "",
-            f"**Einordnung:** {relevance(item)}",
-            "",
-            f"**Quelle:** {source_line(item)}",
-            "",
-        ]
-
-    lines: list[str] = [
-        "## Management Summary",
-        "",
-    ]
-    for item in relevant_items[:8]:
-        lines.append(f"- **{item['org']}:** {item['headline']}. {relevance(item)}")
-
-    lines.extend(["", "## Top-Themen der Woche", ""])
-    for item in relevant_items[:6]:
-        lines.extend(block(item))
-
-    kassen_items = [
-        item for item in relevant_items
-        if any(term in item["org"].lower() for term in ("tk", "barmer", "dak", "aok", "ikk", "bkk", "hkk", "sbk", "kkh", "kasse"))
-    ]
-    if kassen_items:
-        lines.extend(["## Kassenradar", ""])
-        for item in kassen_items[:8]:
-            lines.extend(block(item))
-
-    institution_items = [
-        item for item in relevant_items
-        if any(term in f"{item['org']} {item['headline']} {item['text']}".lower() for term in (
-            "bmg", "gkv-spitzenverband", "gematik", "bsi", "datenschutz", "aok-bundesverband",
-            "vdek", "ikk e.v", "bkk dachverband", "bitmarck", "itsc"
-        ))
-    ]
-    if institution_items:
-        lines.extend(["## Institutionen- und Politikradar", ""])
-        for item in institution_items[:8]:
-            lines.extend(block(item))
-
-    it_items = [
-        item for item in relevant_items
-        if contains_any(f"{item['headline']} {item['text']}".lower(), HARD_ACCOUNT_SIGNAL_TERMS)
-    ]
-    if it_items:
-        lines.extend(["## IT-, Digital- und Beschaffungssignale", ""])
-        for item in it_items[:8]:
-            lines.extend(block(item))
-
-    linkedin_items = [item for item in relevant_items if item["kind"] == "LinkedIn"]
-    if linkedin_items:
-        lines.extend(["## LinkedIn-Entscheidersignale", ""])
-        for item in linkedin_items[:6]:
-            lines.extend(block(item))
-
-    if len(relevant_items) >= 2:
-        lines.extend([
-            "## Marktsignale und schwache Hinweise",
-            "",
-            "Die folgenden Punkte sind als Signal oder Interpretation zu lesen, nicht als gesicherte Opportunity.",
-            "",
-        ])
-        for item in relevant_items[:5]:
-            lines.append(f"- **Signal:** {item['org']} / {item['headline']} deutet auf ein Thema hin, das im Account-Kontext beobachtet werden sollte.")
-        lines.append("")
-
-    lines.extend([
-        "## Relevanz fuer mich / Account-Management-Briefing",
-        "",
-    ])
-    for item in relevant_items[:10]:
-        lines.append(f"- **{item['org']}:** {relevance(item)}")
-    lines.append("")
-
-    grouped: dict[str, list[dict]] = {}
-    for item in relevant_items[:MAX_NEWSLETTER_SOURCES]:
-        grouped.setdefault(item["kind"], []).append(item)
-    lines.extend(["## Quellenuebersicht", ""])
-    for kind, group in grouped.items():
-        lines.append(f"**{kind}**")
-        for item in group[:10]:
-            lines.append(f"- {source_line(item)}")
-        lines.append("")
-
-    return "\n".join(lines).strip() + "\n"
+    return "\n\n".join(lines).strip() + "\n"
 
 
 
 # ---------------------------------------------------------------------------
-# Executive Summary
+# Newsletter-Erstellung
 # ---------------------------------------------------------------------------
 
 def load_last_week() -> str:
@@ -2377,50 +2383,34 @@ SAUBERES QUELLENPAKET DIESER WOCHE:
 {last_week_block}
 FORMAT:
 
-Nutze die bestehende Markdown-Struktur des KassenInfodienstes. Ergaenze Rubriken nur, wenn Daten vorhanden sind.
-Zielumfang: ungefaehr {NEWSLETTER_TARGET_WORDS} Woerter, aber schwache Wochen nicht aufblaehen.
+Keine Rubriken. Keine Management Summary. Keine Quellenuebersicht. Kein optisches Aufplustern.
 
-## Management Summary
-Maximal 8 bis 10 zentrale Punkte. Jeder Punkt: Was ist passiert? Warum relevant? Was bedeutet es fuer GKV-IT, Markt, Kunden oder Accounts?
+Gib nur eine flache, deduplizierte Liste relevanter Fundstuecke aus.
+Pro Fundstueck genau dieses Muster:
 
-## Top-Themen der Woche
-Die wichtigsten 3 bis 6 Themen als redaktionelle Einordnung. Nicht nur referieren: Treiber, betroffene Kassen/Institutionen, IT-/Digital-/Umsetzungsfolgen, Risiken/Chancen und konkrete Gespraechsanlaesse herausarbeiten.
+- **Kurzer Titel:** Zwei bis vier Saetze als Zusammenfassung des Fundstuecks. Signal und Einordnung sind ein gemeinsamer Text: Was steht drin, warum ist es fuer GKV, Kassen-IT, Service, Regulierung, Daten, KI, Prozesse, Dienstleister oder Account Management relevant? Keine getrennten Labels.
+  [Quelle](URL)
 
-## Kassenradar
-Nur relevante Kassen aufnehmen, besonders SBK, IKK classic, hkk, AOK-System, BARMER, TK, DAK-Gesundheit, BKK-/IKK-Umfeld und Ersatzkassen. Pro Kasse: Veroeffentlichung/Signal, Quelle/Person, Themenfokus, Bedeutung fuer IT/Digitalisierung/Service/Versorgung/Betrieb/Beschaffung und moeglicher Gespraechsanlass.
-
-## Institutionen- und Politikradar
-BMG, GKV-Spitzenverband, gematik, BSI, Datenschutzaufsicht, AOK-BV, vdek, IKK e.V., BKK Dachverband, BITMARCK, ITSC und vergleichbare Akteure. Fokus: Gesetz, Stellungnahme, Frist, regulatorisches Risiko, Umsetzungsdruck, Auswirkungen auf Kassen, Dienstleister und IT-Landschaften.
-
-## IT-, Digital- und Beschaffungssignale
-Neue IT-Vorhaben, App-/Portal-/Plattformmodernisierung, Cloud/Infrastruktur/RZ/Managed Services, Informationssicherheit, ePA/TI/eGK/VSDM/gematik, Ausschreibungsnaehe, IT-Personalaufbau, Partner- oder Dienstleistersignale.
-
-## LinkedIn-Entscheidersignale
-Nur relevante Stimmen. Je Signal: Person, Rolle, Organisation, Thema, Kernaussage, warum relevant, moegliche Interpretation und Belastbarkeit. Keine irrelevanten Einzelposts.
-
-## Marktsignale und schwache Hinweise
-Keine Geruechte behaupten. Nur Muster, Beobachtungen oder indirekte Hinweise, die aus mehreren Quellen oder plausiblen oeffentlichen Signalen ableitbar sind. Jeden Punkt klar als Hinweis, Signal oder Interpretation kennzeichnen.
-
-## Relevanz fuer mich / Account-Management-Briefing
-5 bis 10 konkrete Punkte: merken, beobachtete Kunden/Institutionen, Gespraechsanlaesse, moegliche Opportunities, aktive Kundenthemen, Networking-/Positionierungsrelevanz.
-
-## Quellenuebersicht
-Die wichtigsten Quellen transparent gruppieren: Primaerquellen, Pressemitteilungen, Verbands-/Institutionsseiten, LinkedIn-Signale, Medienberichte, sonstige Hinweise. Kurze Links, keine rohen Volltext-URLs.
+Wenn keine echte URL vorhanden ist, lasse die Quellenzeile weg. Keine Beschreibung der Quelle, nur den Markdown-Link.
+Zielumfang: kompakt. Schwache Wochen nicht aufblaehen.
 
 REGELN:
 - KEINEN Titel ausgeben – Header kommt automatisch
+- Keine Ueberschriften ausgeben.
+- Keine Rubriken ausgeben.
+- Keine Management Summary ausgeben.
+- Keine separate Quellenuebersicht ausgeben.
 - "KEINE_HIGHLIGHTS"-Einträge ignorieren
 - Nur Meldungen aus den kuratierten Rohdaten verwenden, keine neuen Fakten ergänzen
 - Keine sichtbaren internen Scores, keine Roh-IDs, keine Formulierungen wie "Quellenradar", "Rohsignal", "kuratierte Rohmeldung" oder "Nullmeldung".
 - Wenn eine Rohmeldung bereits als "ohne konkreten Kontext", "kein konkreter GKV-/IT-Bezug",
   "nur Karrieremeldung" oder "nur Reiseankündigung" eingeordnet ist: weglassen.
 - Keine Platzhalterlinks wie "(LinkedIn)", "(Quelle)", "(LinkedIn Quelle)" oder "(DAZ Quelle)".
-- Keine rohen Volltext-URLs im sichtbaren Text. Immer Markdown-Link mit kurzem Label:
-  [LinkedIn](URL), [Quelle](URL), [DAZ](URL), [Google News](URL).
+- Keine rohen Volltext-URLs im sichtbaren Text. Quelle immer nur als [Quelle](URL), ohne Beschreibung.
 - Interne Rohdaten-IDs wie Q01, Q02, item_17 nicht sichtbar ausgeben.
 - Auch die sauberen Quellen-IDs S01, S02 usw. nicht sichtbar ausgeben.
 - Keine Rohüberschriften wie "LinkedIn | BITMARCK ..." übernehmen.
-- Keine Labels "Kurzfassung:" oder "Einordnung:" ausgeben. Schreibe normale Absätze.
+- Keine Labels "Signal:", "Kurzfassung:", "Einordnung:" oder "Quelle:" ausgeben.
 - Nur echte URLs aus den Rohdaten als Link nutzen. Wenn keine URL vorhanden ist:
   "LinkedIn via LinkdAPI, keine URL geliefert" schreiben.
 - Keine Meldung als harte Tatsache aufnehmen, wenn Datum, Quelle oder konkreter Anlass unklar bleibt;
@@ -2434,9 +2424,7 @@ REGELN:
   Health IT, KI, Digital Health oder Versorgung einordnet, als Markttrend aufnehmen.
   Einzelne Personen duerfen aber maximal 1-2 Meldungen bekommen; nicht eine Person dominieren lassen.
 - Dienstleister-Projektsignale sind wichtig, auch wenn sie nicht direkt von einer Kasse kommen
-- Zielumfang von ungefaehr {NEWSLETTER_TARGET_WORDS} Woertern ernst nehmen, wenn die Quellenlage traegt. Bei {source_count} Quellen darf der Newsletter nicht kurz ausfallen; bei schwacher Quellenlage lieber kompakt bleiben.
-- Der Newsletter soll deutlich mehr Lesetext als Überschriften enthalten.
-- Abschnitte ohne Daten: WEGLASSEN (kein "nicht verfügbar")
+- Bei schwacher Quellenlage lieber sehr kompakt bleiben.
 
 Schreibe auf Deutsch."""
 
@@ -2458,93 +2446,9 @@ Schreibe auf Deutsch."""
             ],
         )
         result = completion.choices[0].message.content or ""
-    result = ensure_visuals_in_summary(result, all_research)
-    if source_count >= 18 and len(result.strip()) < MIN_NEWSLETTER_CHARS:
-        print(
-            f"   ↪️  Newsletter wirkt noch zu kurz ({len(result.strip())} Zeichen) – erweitere redaktionell."
-        )
-        expansion_prompt = f"""Der folgende Newsletter-Entwurf ist fuer {source_count} Quellen zu kurz.
-Erweitere ihn zu einem echten Wochenbrief mit mehr Einordnung, mehr LinkedIn-Kontext,
-mehr Dienstleister-/Kassenbezug und konkreteren Gespraechsanlaessen.
-
-Wichtig:
-- Keine neuen Fakten erfinden.
-- Keine Dopplungen ergaenzen.
-- Quellenlinks aus den Rohdaten als kurze Markdown-Links einbetten.
-- Vorhandene Bilder beibehalten und bei passenden Rohdaten weitere Bilder uebernehmen.
-- Nicht aus jeder Quelle eine Einzelkarte machen, sondern Themen clustern.
-- Keine Rohüberschriften wie "LinkedIn | ..." und keine Labels "Kurzfassung:"/"Einordnung:".
-- Ziel: mindestens {MIN_NEWSLETTER_CHARS} Zeichen, aber sauber lesbar.
-
-QUELLENPAKET:
-{source_pack[:50000]}
-
-ENTWURF:
-{result}
-
-Schreibe nur die verbesserte finale Fassung, ohne Meta-Kommentar."""
-        if NEWSLETTER_API == "responses":
-            response = client.responses.create(
-                model=NEWSLETTER_MODEL,
-                instructions=SYSTEM_PROMPT,
-                max_output_tokens=9000,
-                input=expansion_prompt,
-            )
-            expanded = response.output_text or ""
-        else:
-            completion = client.chat.completions.create(
-                model=NEWSLETTER_MODEL,
-                max_completion_tokens=9000,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": expansion_prompt},
-                ],
-            )
-            expanded = completion.choices[0].message.content or ""
-        if len(expanded.strip()) > len(result.strip()):
-            result = ensure_visuals_in_summary(expanded, all_research)
     if newsletter_needs_repair(result, source_count):
-        print("   ↪️  Newsletter wirkt noch zu roh – schreibe ihn als Wochenbericht neu.")
-        repair_prompt = f"""Der folgende Newsletter wirkt noch zu sehr wie eine Rohdatenliste.
-Schreibe ihn komplett neu als persoenlichen Wochenbrief GKV & IT.
-
-Zwingende Regeln:
-- 6 bis 9 Story-Abschnitte, nicht pro Quelle ein Abschnitt.
-- Deutlich mehr Fließtext als Überschriften.
-- Keine Rohpräfixe wie "LinkedIn |", "News/RSS", "Q01", "S01".
-- Keine Labels "Kurzfassung:" oder "Einordnung:".
-- Jede Story hat 3 bis 6 Absätze und nutzt Quellenlinks als [Zum Artikel](URL)
-  oder [Zum LinkedIn-Beitrag](URL).
-- Relevante Bilder aus dem Quellenpaket übernehmen, aber nicht jedes Bild.
-- Keine neuen Fakten erfinden.
-
-QUELLENPAKET:
-{source_pack[:50000]}
-
-FEHLERHAFTER ENTWURF:
-{result[:25000]}
-
-Schreibe nur die finale Fassung."""
-        if NEWSLETTER_API == "responses":
-            response = client.responses.create(
-                model=NEWSLETTER_MODEL,
-                instructions=SYSTEM_PROMPT,
-                max_output_tokens=9000,
-                input=repair_prompt,
-            )
-            repaired = response.output_text or ""
-        else:
-            completion = client.chat.completions.create(
-                model=NEWSLETTER_MODEL,
-                max_completion_tokens=9000,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": repair_prompt},
-                ],
-            )
-            repaired = completion.choices[0].message.content or ""
-        if len(repaired.strip()) > 500:
-            result = ensure_visuals_in_summary(repaired, all_research)
+        print("   ↪️  Newsletter enthaelt noch Rubriken/Labels – nutze kompakte Fundstueckliste.")
+        result = build_source_based_newsletter(all_research, today)
     print(result)
     return result
 
@@ -2974,7 +2878,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--kein-summary",
         action="store_true",
-        help="Executive Summary überspringen",
+        help="Newsletter-Erstellung überspringen",
     )
     parser.add_argument(
         "--demo",
@@ -3207,111 +3111,11 @@ def make_report_header(today: date, tage: int, kassen: list[dict]) -> str:
 
 def build_demo_summary(today: date) -> str:
     """Erzeugt eine Beispielausgabe fuer Layout- und Redaktionsprüfung ohne externe Quellen."""
-    return f"""## Management Summary
+    return """- **ePA-Umsetzung als Integrations- und Service-Thema:** Ein gematik- oder BMG-Hinweis waere nur dann relevant, wenn daraus konkrete Folgefragen fuer Portal, App, Authentifizierung, Kontaktcenter, Wissensmanagement, Schnittstellen oder Dienstleistersteuerung entstehen. Fuer Account Management zaehlt nicht die Pflicht an sich, sondern wo die Umsetzung operativ klemmt.
+  [Quelle](https://www.gematik.de)
 
-- **gematik/ePA bleibt der operative Taktgeber:** Der Dummy-Hinweis zeigt, wie regulatorischer Umsetzungsdruck in konkrete Portal-, Prozess- und Integrationsfragen uebersetzt wird.
-- **SBK und hkk stehen exemplarisch fuer Service-Modernisierung:** Beide Signale sind als Gespraechsanlass fuer App-, Portal- und Prozessautomatisierung formuliert, nicht als gesicherte Ausschreibung.
-- **BITMARCK/ITSC bleiben Infrastruktur-Sensoren:** Dienstleisterkommunikation wird nicht als Selbstzweck aufgenommen, sondern nur wenn sie Rueckschluesse auf Betrieb, Plattformen oder Kassenbedarf erlaubt.
-- **LinkedIn wird streng kuratiert:** Nur Entscheider- oder offizielle Stimmen mit Digital-, IT-, Regulatorik- oder Umsetzungsbezug erscheinen im Briefing.
-
-## Top-Themen der Woche
-
-### ePA-Umsetzung wird zum Integrations- und Service-Thema
-
-Ein fiktives gematik-/BMG-Signal zur ePA zeigt, wie der Dienst kuenftig politische Pflichtkommunikation von operativ relevanten IT-Folgen trennt. Eine reine Erinnerung an gesetzliche Fristen wuerde nicht reichen. Relevant wird das Thema erst, wenn daraus Handlungsdruck fuer Authentifizierung, Frontend-Kommunikation, Callcenter-Entlastung, Versichertenprozesse oder Schnittstellen entsteht.
-
-Fuer Account Management ist der Gespraechsanlass klar: Welche Kassen haben die ePA-Kommunikation nur formal vorbereitet, und wo entstehen Folgefragen in Portal, App, CRM, Wissensmanagement oder Vorgangsbearbeitung?
-
-### Service- und Prozessmodernisierung als Kassenradar-Signal
-
-Das Dummy-Signal zur SBK steht fuer eine Kasse, die digitale Servicequalitaet nicht nur kommunikativ, sondern als Prozessmodernisierung adressiert. Im fertigen Wochenbrief wuerde nur aufgenommen, was durch Quelle, Rolle und konkreten Anlass belastbar ist. Allgemeine Imagekommunikation faellt heraus.
-
-Die hkk dient als Beispiel fuer ein schwaches, aber plausibles Marktsignal: Wenn mehrere oeffentliche Hinweise in Richtung Effizienz, digitale Services und IT-Rollen zeigen, darf das als Interpretation erscheinen, aber nicht als gesicherte Tatsache.
-
-## Kassenradar
-
-### SBK
-
-**Signal:** Offizielle oder Entscheiderkommunikation zu digitalem Service, Portal/App oder Versichertenprozessen.
-
-**Bedeutung:** Potenzieller Bedarf bei Frontend, Prozessautomatisierung, CRM, Wissensmanagement und kanaluebergreifender Servicefuehrung.
-
-**Gespraechsanlass:** Welche digitalen Kontaktstrecken verursachen noch manuelle Nacharbeit?
-
-### hkk
-
-**Signal:** Hinweise auf Effizienz, Servicequalitaet oder Digitalrollen.
-
-**Bedeutung:** Als einzelnes Signal nur vorsichtig verwenden; bei mehreren Quellen kann daraus ein Modernisierungshinweis werden.
-
-**Gespraechsanlass:** Prozesslandkarte, Automatisierungspotenzial und aktuelle Prioritaeten im Kundenservice abfragen.
-
-## Institutionen- und Politikradar
-
-### gematik / BMG
-
-Regulatorische Signale werden nur aufgenommen, wenn sie konkrete Folgen fuer Kassen-IT, Dienstleistersteuerung oder Umsetzungsplanung haben. Fristen, Spezifikationen und offizielle Stellungnahmen sind Primarquellen mit hoher Belastbarkeit; reine Sekundaerkommentare sind niedriger zu gewichten.
-
-### BSI / Datenschutzaufsicht
-
-Informationssicherheit wird als eigenes Suchfeld behandelt: NIS2, KRITIS, B3S, C5, Datenschutz und BSI-Hinweise koennen direkten Modernisierungsdruck fuer Betrieb, Cloud, Governance und Dienstleistermanagement ausloesen.
-
-## IT-, Digital- und Beschaffungssignale
-
-- **App/Portal:** relevant bei Go-live, Relaunch, konkreter Roadmap, Nutzerprozess oder Dienstleisterhinweis.
-- **Cloud/Betrieb:** relevant bei RZ-, Managed-Service-, Security- oder Migrationsbezug.
-- **ePA/TI/eGK/VSDM:** relevant bei konkretem Umsetzungs-, Integrations- oder Kommunikationsbedarf.
-- **Ausschreibungsnaehe:** relevant bei TED, Vergabeportalen, Stellenaufbau, Dienstleisterwechsel oder offizieller Projektkommunikation.
-
-## LinkedIn-Entscheidersignale
-
-### Beispielsignal: CIO/CDO oder offizielle Kommunikation
-
-**Person/Rolle/Organisation:** Dummy-Entscheider, CIO/CDO oder Pressestelle einer Kasse.
-
-**Thema:** Plattform-, Service- oder Prozessmodernisierung.
-
-**Kernaussage:** Ein belastbares LinkedIn-Signal wird nur aufgenommen, wenn es eine konkrete strategische Aussage enthaelt.
-
-**Warum relevant:** Entscheiderkommunikation kann frueh zeigen, welche Themen intern Prioritaet bekommen.
-
-**Belastbarkeit:** Mittel bis hoch, wenn Person/Rolle eindeutig und Inhalt konkret ist; niedrig bei Reposts, Eventbildern oder Marketingfloskeln.
-
-## Marktsignale und schwache Hinweise
-
-**Signal:** Mehrere Kassen sprechen in kurzer Zeit ueber Servicequalitaet und digitale Kontaktstrecken.
-
-**Interpretation:** Das kann auf Druck in Kundenservice, Automatisierung und Frontend-Prozessen hindeuten. Es ist keine Ausschreibung und keine gesicherte Budgetaussage.
-
-**Hinweis:** Stellenanzeigen fuer IT, Data, Security oder Prozessmanagement koennen Modernisierungsdruck anzeigen, muessen aber mit weiteren Quellen abgeglichen werden.
-
-## Relevanz fuer mich / Account-Management-Briefing
-
-- SBK, hkk und IKK classic weiter differenziert beobachten: echte Projektkommunikation vor Imagekommunikation.
-- Bei ePA/TI nicht ueber Pflicht reden, sondern ueber konkrete Prozessfolgen: App, Portal, Authentifizierung, Kontaktcenter, Wissensmanagement.
-- BITMARCK und ITSC als Sensoren fuer Plattform-, Betriebs- und Rolloutthemen im Blick behalten.
-- BSI-/NIS2-/KRITIS-Signale aktiv in Gespraechen mit IT- und Betriebsverantwortlichen platzieren.
-- LinkedIn-Entscheidersignale als Warm-up nutzen, aber vor Kundengespraechen immer mit Primaerquelle oder zweitem Signal absichern.
-
-## Quellenuebersicht
-
-**Primaerquellen**
-- Dummy: gematik/BMG-Frist- oder Spezifikationshinweis
-
-**Pressemitteilungen**
-- Dummy: Kassenmeldung zu digitalem Service
-
-**Verbands-/Institutionsseiten**
-- Dummy: BSI-/GKV-SV-/vdek-Hinweis zu Regulierung oder Umsetzung
-
-**LinkedIn-Signale**
-- Dummy: Entscheiderpost mit Rolle, Organisation und konkretem Thema
-
-**Medienberichte**
-- Dummy: Fachmedienbericht mit Health-IT-Bezug
-
-**Sonstige Hinweise**
-- Dummy: Stellenanzeigen-/Dienstleistermuster als vorsichtig markierte Interpretation
+- **Service-Modernisierung bei einer Kasse:** Eine Kassenmeldung zu digitalen Kontaktstrecken waere ein Fundstueck, wenn sie auf echte Prozessarbeit hinweist und nicht nur Imagekommunikation ist. Relevant waere dann die Frage, welche Servicefaelle noch manuelle Nacharbeit erzeugen.
+  [Quelle](https://www.gkv-spitzenverband.de)
 """
 
 
@@ -3489,14 +3293,12 @@ def main() -> None:
         print("🧹 Bewerte Relevanz und filtere Rauschen ...")
         filtered_research = score_research_items(client, raw_research)
         if filtered_research.strip():
-            report_section = build_filter_report_section()
-            all_research = (report_section + "\n" + filtered_research).strip()
+            all_research = filtered_research.strip()
         else:
             rescued_research = build_hard_signal_rescue_research(raw_research)
             if rescued_research.strip():
                 print("   ✅ KI-Filter ergab 0, harte Signalrettung hat belastbare Treffer gefunden.")
-                report_section = build_filter_report_section()
-                all_research = (report_section + "\n" + rescued_research).strip()
+                all_research = rescued_research.strip()
             else:
                 print("   ℹ️  Filter ergab 0 belastbare Treffer – erstelle kurze Nullmeldung.")
                 all_research = ""
@@ -3504,50 +3306,50 @@ def main() -> None:
     highlights_count = len(_extract_candidate_items(all_research)) if all_research.strip() else 0
     print(f"\n📊 {highlights_count} kuratierte Meldung(en) aus {raw_highlights_count} Rohquellen.")
 
-    summary = ""
+    newsletter = ""
     if not args.kein_summary and highlights_count > 0:
         print("📰 Erstelle Newsletter ...")
         if LAST_WEEK_FILE.exists():
             print("   📖 Letzte Woche geladen – filtere Wiederholungen ...")
 
         try:
-            summary = generate_executive_summary(client, all_research, today)
+            newsletter = generate_executive_summary(client, all_research, today)
         except openai.OpenAIError as e:
             print(f"   ⚠️  Newsletter-Fehler: {e}", file=sys.stderr)
-            summary = f"> ⚠️ Newsletter konnte nicht erstellt werden: {e}\n"
+            newsletter = f"> ⚠️ Newsletter konnte nicht erstellt werden: {e}\n"
 
-        if len(summary.strip()) < 500:
+        if len(newsletter.strip()) < 500:
             print(
-                f"   ⚠️  Newsletter-Modell lieferte nur {len(summary.strip())} Zeichen – nutze quellenbasierten Fallback.",
+                f"   ⚠️  Newsletter-Modell lieferte nur {len(newsletter.strip())} Zeichen – nutze quellenbasierten Fallback.",
                 file=sys.stderr,
             )
-            summary = build_source_based_newsletter(all_research, today)
-        elif newsletter_needs_repair(summary, highlights_count):
+            newsletter = build_source_based_newsletter(all_research, today)
+        elif newsletter_needs_repair(newsletter, highlights_count):
             print(
                 "   ⚠️  Newsletter wirkt noch wie Rohdatenliste – nutze redaktionell bereinigten Fallback.",
                 file=sys.stderr,
             )
-            summary = build_source_based_newsletter(all_research, today)
+            newsletter = build_source_based_newsletter(all_research, today)
 
         # Gedächtnis für nächste Woche speichern
-        if summary and "konnte nicht erstellt" not in summary:
-            save_last_week(summary, today)
+        if newsletter and "konnte nicht erstellt" not in newsletter:
+            save_last_week(newsletter, today)
             print("   💾 Newsletter als nächste-Woche-Kontext gespeichert.")
 
         print("   ✅ Fertig.")
     elif highlights_count == 0:
-        summary = build_empty_summary(raw_highlights_count, today)
+        newsletter = build_empty_summary(raw_highlights_count, today)
 
     # Finalen Newsletter schreiben (Header + kuratierter Inhalt)
     header = make_report_header(today, args.tage, kassen)
-    output_path.write_text(header + summary, encoding="utf-8")
+    output_path.write_text(header + newsletter, encoding="utf-8")
 
     print(f"\n✅ Newsletter gespeichert: {output_path}")
 
     # E-Mail versenden
     if args.email:
         print()
-        send_email(output_path, summary, today)
+        send_email(output_path, newsletter, today)
 
     print()
 
