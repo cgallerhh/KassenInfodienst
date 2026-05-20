@@ -407,6 +407,8 @@ def evaluate_linkedin_signal(org: dict, actor_name: str, actor_title: str, text:
         return False, "Nicht-Entscheiderrolle"
     if is_noise and not is_strategic_event:
         return False, "Karriere/Event/Marketing ohne strategischen Bezug"
+    if is_strategic_event and has_gkv_context:
+        return True, "strategisches GKV-IT-Event"
     if is_provider and not has_gkv_context:
         return False, "Dienstleisterpost ohne GKV-Kontext"
     if is_institution and not (has_topic or has_gkv_context):
@@ -1326,6 +1328,7 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
     dropped_no_topic = 0
     dropped_duplicate = 0
     seen_global_posts: set[str] = set()
+    linkedin_audit: list[dict] = []
 
     market_target = {
         "name": "GKV & IT Markt",
@@ -1387,7 +1390,10 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                         posts = result.get("data", {})
                         if isinstance(posts, dict):
                             posts = posts.get("posts") or posts.get("elements") or posts.get("items") or []
-                        raw_posts.extend(p for p in posts if isinstance(p, dict))
+                        for post in posts:
+                            if isinstance(post, dict):
+                                post["_audit_query"] = search_kwargs.get("keyword") or search_kwargs.get("author_company") or ""
+                                raw_posts.append(post)
                     break  # Erfolg
                 except Exception as e:
                     err_str = str(e)
@@ -1444,10 +1450,20 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             reactions = int(likes) + int(comments)
 
             post_url = find_url_in_obj(post, ("linkedin.com",))
+            audit_base = {
+                "organization": kasse.get("short") or kasse.get("name") or "",
+                "actor": actor_name,
+                "role": actor_title,
+                "query": post.get("_audit_query", ""),
+                "text": text[:1200],
+                "url": post_url,
+                "date": datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d") if ts else "",
+            }
             text_key = normalize_item_key(f"{actor_name} {text}")
             post_key = post_url or text_key
             if text_key in seen_texts or post_key in seen_global_posts:
                 dropped_duplicate += 1
+                linkedin_audit.append({**audit_base, "status": "verworfen", "reason": "Duplikat"})
                 continue
             seen_texts.add(text_key)
             seen_global_posts.add(post_key)
@@ -1545,24 +1561,30 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
                     dropped_no_topic += 1
                 else:
                     dropped_non_decision += 1
+                linkedin_audit.append({**audit_base, "status": "verworfen", "reason": drop_reason})
                 continue
 
             if is_non_decision:
                 dropped_non_decision += 1
+                linkedin_audit.append({**audit_base, "status": "verworfen", "reason": "Nicht-Entscheiderrolle"})
                 continue
             if is_provider and not has_gkv_context:
                 dropped_no_context += 1
+                linkedin_audit.append({**audit_base, "status": "verworfen", "reason": "Dienstleisterpost ohne GKV-Kontext"})
                 continue
             if not (is_entscheider or is_company_or_kasse or is_named_influencer):
                 dropped_non_decision += 1
+                linkedin_audit.append({**audit_base, "status": "verworfen", "reason": "keine Entscheider- oder offizielle Quelle"})
                 continue
             if not (
                 (is_it_thema and has_gkv_context)
                 or (is_influencer and is_branchenthema)
                 or (is_entscheider and has_gkv_context)
                 or (is_company_or_kasse and has_gkv_context and is_branchenthema)
+                or _is_strategic_event_signal(text_lower)
             ):
                 dropped_no_topic += 1
+                linkedin_audit.append({**audit_base, "status": "verworfen", "reason": "kein belastbares IT-, Digital-, Regulatorik- oder Marktsignal"})
                 continue
 
             post_date = datetime.fromtimestamp(ts / 1000).strftime("%d.%m.%Y") if ts else "?"
@@ -1577,6 +1599,7 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             else:
                 line += " _(Quelle: LinkedIn via LinkdAPI, keine Post-URL geliefert)_"
             findings.append(add_image_marker(line, find_image_in_obj(post)))
+            linkedin_audit.append({**audit_base, "status": "an_relevanzfilter_uebergeben", "reason": "LinkdAPI-Vorfilter bestanden"})
 
         if findings:
             all_findings.append(f"**{kasse['short']}** (LinkedIn):")
@@ -1585,6 +1608,7 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
             post_count += len(findings[:LINKEDIN_POSTS_PER_ACCOUNT])
 
     if not all_findings:
+        _write_linkedin_audit(linkedin_audit, today)
         print(
             "   LinkedIn LinkdAPI: "
             f"{raw_post_count} Rohposts, 0 behalten "
@@ -1599,6 +1623,7 @@ def scrape_linkedin_linkdapi(kassen: list[dict], tage: int) -> str:
         f"{raw_post_count} Rohposts, {post_count} behalten "
         f"(Duplikate: {dropped_duplicate}, Nicht-Entscheider: {dropped_non_decision}, ohne GKV-Kontext: {dropped_no_context}, ohne IT/Projekt-Thema: {dropped_no_topic})."
     )
+    _write_linkedin_audit(linkedin_audit, today)
     return "\n".join(lines)
 
 
@@ -1670,6 +1695,63 @@ def _write_news_rss_audit(entries: list[dict], today: date) -> None:
         link = str(entry.get("link", "")).strip()
         link_md = f"[Quelle]({link})" if link else ""
         lines.append(f"| {group} | {org} | {publisher} | {title} | {link_md} |")
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_linkedin_audit(entries: list[dict], today: date) -> None:
+    """Speichert gesehene LinkedIn-Treffer samt Filterentscheidung."""
+    if not entries:
+        return
+    REPORTS_DIR.mkdir(exist_ok=True)
+    json_path = REPORTS_DIR / f"linkedin_audit_{today.isoformat()}.json"
+    md_path = REPORTS_DIR / f"linkedin_audit_{today.isoformat()}.md"
+    json_path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    lines = [
+        f"# LinkedIn-Audit {today.strftime('%d.%m.%Y')}",
+        "",
+        "| Status | Organisation | Autor | Rolle | Grund | Query | Text | Link |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for entry in entries:
+        status = str(entry.get("status", "")).replace("|", "\\|")
+        org = str(entry.get("organization", "")).replace("|", "\\|")
+        actor = str(entry.get("actor", "")).replace("|", "\\|")
+        role = str(entry.get("role", "")).replace("|", "\\|")[:100]
+        reason = str(entry.get("reason", "")).replace("|", "\\|")
+        query = str(entry.get("query", "")).replace("|", "\\|")[:120]
+        text = str(entry.get("text", "")).replace("|", "\\|").replace("\n", " ")[:260]
+        link = str(entry.get("url", "")).strip()
+        link_md = f"[LinkedIn]({link})" if link else ""
+        lines.append(f"| {status} | {org} | {actor} | {role} | {reason} | {query} | {text} | {link_md} |")
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_curation_audit(entries: list[dict], today: date) -> None:
+    """Speichert die zweite Filterstufe: was ging in den Newsletter, was nicht."""
+    if not entries:
+        return
+    REPORTS_DIR.mkdir(exist_ok=True)
+    json_path = REPORTS_DIR / f"curation_audit_{today.isoformat()}.json"
+    md_path = REPORTS_DIR / f"curation_audit_{today.isoformat()}.md"
+    json_path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    lines = [
+        f"# Kurations-Audit {today.strftime('%d.%m.%Y')}",
+        "",
+        "| Status | Quelle | Organisation | Score | Grund | Text | Link |",
+        "|---|---|---|---:|---|---|---|",
+    ]
+    for entry in entries:
+        status = str(entry.get("status", "")).replace("|", "\\|")
+        kind = str(entry.get("kind", "")).replace("|", "\\|")
+        org = str(entry.get("organization", "")).replace("|", "\\|")
+        score = entry.get("score", "")
+        reason = str(entry.get("reason", "")).replace("|", "\\|")
+        text = str(entry.get("text", "")).replace("|", "\\|").replace("\n", " ")[:280]
+        link = str(entry.get("url", "")).strip()
+        link_md = f"[Quelle]({link})" if link else ""
+        lines.append(f"| {status} | {kind} | {org} | {score} | {reason} | {text} | {link_md} |")
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -2455,12 +2537,27 @@ Rohmeldungen:
     fallback: list[str] = []
     dropped = 0
     seen_items: set[str] = set()
+    curation_audit: list[dict] = []
     filter_stats = {"geprueft": len(items), "dedupliziert": 0, "verworfen": 0, "linkedin_verworfen": 0, "behalten": 0}
+
+    def audit_item(item: dict, status: str, reason: str, score: int | str = "") -> None:
+        label, url = extract_markdown_link(item.get("text", ""))
+        curation_audit.append({
+            "status": status,
+            "kind": source_kind(item, label, url),
+            "organization": clean_visible_source_text(item.get("kasse", "") or ""),
+            "score": score,
+            "reason": reason,
+            "text": clean_visible_source_text(item.get("text", ""))[:1200],
+            "url": url,
+        })
+
     for item in items:
         dedupe_key = normalize_item_key(item.get("text", ""))
         if dedupe_key in seen_items:
             dropped += 1
             filter_stats["dedupliziert"] += 1
+            audit_item(item, "verworfen", "Duplikat")
             continue
         seen_items.add(dedupe_key)
 
@@ -2477,6 +2574,7 @@ Rohmeldungen:
             filter_stats["verworfen"] += 1
             if is_linkedin:
                 filter_stats["linkedin_verworfen"] += 1
+            audit_item(item, "verworfen", pre_reason)
             continue
 
         if is_linkedin:
@@ -2485,6 +2583,7 @@ Rohmeldungen:
                 dropped += 1
                 filter_stats["verworfen"] += 1
                 filter_stats["linkedin_verworfen"] += 1
+                audit_item(item, "verworfen", linkedin_reject_reason)
                 continue
 
         score_5 = int(decision.get("score") or 0)
@@ -2501,6 +2600,7 @@ Rohmeldungen:
         elif final_score >= MIN_SCORE_INTERNAL:
             dropped += 1
             filter_stats["verworfen"] += 1
+            audit_item(item, "verworfen", str(decision.get("exclude_reason") or "Score unter Auslieferungsschwelle"), final_score)
             continue
         else:
             keep = False
@@ -2508,6 +2608,7 @@ Rohmeldungen:
         if not keep:
             dropped += 1
             filter_stats["verworfen"] += 1
+            audit_item(item, "verworfen", str(decision.get("exclude_reason") or "Scorer keep=false oder Score zu niedrig"), final_score)
             continue
 
         relevance = str(decision.get("sales_relevance") or deterministic_reason or "").strip()
@@ -2525,8 +2626,10 @@ Rohmeldungen:
         )
         kept.append(block)
         filter_stats["behalten"] += 1
+        audit_item(item, "ausgeliefert_an_redaktion", relevance or deterministic_reason or "behalten", final_score)
 
     FILTER_REPORT = filter_stats
+    _write_curation_audit(curation_audit, date.today())
     print(f"   🧹 Relevanzfilter: {len(kept) + len(fallback)} behalten, {dropped} verworfen.")
     if not kept and not fallback:
         return ""
