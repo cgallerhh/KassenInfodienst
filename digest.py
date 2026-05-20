@@ -90,7 +90,7 @@ MAX_IMAGE_FETCHES = env_int("MAX_IMAGE_FETCHES", 24)
 LINKEDIN_QUERY_LIMIT = env_int("LINKEDIN_QUERY_LIMIT", 3)
 LINKEDIN_RADAR_LIMIT = env_int("LINKEDIN_RADAR_LIMIT", 50)
 LINKEDIN_POSTS_PER_ACCOUNT = env_int("LINKEDIN_POSTS_PER_ACCOUNT", 10)
-NEWS_RSS_MARKET_LIMIT = env_int("NEWS_RSS_MARKET_LIMIT", 10)
+NEWS_RSS_MARKET_LIMIT = env_int("NEWS_RSS_MARKET_LIMIT", 30)
 ENABLE_LINKEDIN_VOYAGER = os.environ.get("ENABLE_LINKEDIN_VOYAGER", "").lower() in {"1", "true", "yes"}
 ENABLE_SOURCE_IMAGES = os.environ.get("ENABLE_SOURCE_IMAGES", "true").lower() in {"1", "true", "yes"}
 ENABLE_PERSONEN_RADAR = os.environ.get("ENABLE_PERSONEN_RADAR", "true").lower() in {"1", "true", "yes"}
@@ -254,6 +254,8 @@ STRATEGIC_TOPIC_TERMS = {
     "telematik", "gematik", "datenschutz", "regulatorik", "gesetz",
     "referentenentwurf", "stellungnahme", "ausschreibung", "vergabe", "beschaffung",
     "interoperabilität", "interoperabilitaet", "diga", "e-rezept",
+    "reform", "finanzierung", "finanzierungsdruck", "strukturreform",
+    "versorgungsgesetz", "gesundheitsdatennutzung", "gedig",
 }
 
 LINKEDIN_NOISE_TERMS = {
@@ -303,6 +305,8 @@ HARD_ACCOUNT_SIGNAL_TERMS = {
     "epa", "e-pa", "egk", "vsdm", "ti ", "telematik", "gematik",
     "bsi", "nis2", "kritis", "b3s", "c5", "datenschutz", "informationssicherheit",
     "ausschreibung", "vergabe", "zuschlag", "auftrag", "beschaffung",
+    "reform", "finanzierung", "finanzierungsdruck", "strukturreform",
+    "gesundheitsdatennutzung", "gedig",
     "dienstleister", "bitmarck", "itsc", "aok systems", "gkv informatik",
     "bitmarck kundentag", "bitmarck-kundentag", "bitmarck partnertag",
     "bitmarck-partnertag", "itsc zukunftskongress", "itsc-zukunftskongress",
@@ -908,6 +912,8 @@ def _flat_relevance(item: dict) -> str:
         return "Relevant, weil der ITSC-Zukunftskongress als Plattformsignal fuer ITSC-nahe Kassen Hinweise auf Betriebs-, Plattform-, Service-, Daten- und Transformationsprioritaeten liefern kann."
     if "dmea" in blob and contains_any(blob, EVENT_SUBSTANCE_TERMS):
         return "Relevant, wenn ein Entscheider seine DMEA-Highlights fachlich einordnet, weil daraus Prioritaeten zu Digital Health, Daten, KI, Interoperabilitaet, ePA/TI oder Versorgungsprozessen sichtbar werden."
+    if contains_any(blob, {"reform", "finanzierung", "finanzierungsdruck", "strukturreform"}):
+        return "Relevant, weil Reform- und Finanzierungsdruck die Budget-, Priorisierungs- und Umsetzungslogik der Krankenkassen beeinflusst und damit auch IT-, Prozess- und Dienstleisterentscheidungen rahmt."
     if item.get("kind") == "Vergabe":
         return "Relevant, weil Leistungsbild, Zuständigkeiten oder Budgetfenster sichtbar werden und daraus Prozess-, Integrations-, Betriebs- oder Beratungsbedarf entstehen kann."
     if contains_any(blob, {"fusion", "zusammenschluss"}):
@@ -915,7 +921,7 @@ def _flat_relevance(item: dict) -> str:
     if contains_any(blob, {"gematik", "epa", "e-pa", "ti ", "egk", "vsdm", "bsi", "nis2", "kritis", "gedig", "gesundheitsdatennutzung"}):
         return "Relevant, weil daraus Umsetzungsdruck bei Fristen, Schnittstellen, Kommunikation, Datenschutz, Sicherheit und Dienstleistersteuerung entstehen kann."
     if contains_any(blob, STRATEGIC_TOPIC_TERMS):
-        return "Relevant als Hinweis auf Digital-, IT-, Daten-, Service- oder Prozessbedarf im GKV-Umfeld."
+        return "Relevant, weil das Fundstueck eine konkrete Verschiebung bei Digitalisierung, Daten, Service, Prozessen, Betrieb oder Kassenstrategie anzeigen kann."
     return ""
 
 
@@ -2150,6 +2156,17 @@ def _hard_signal_reason(text_blob: str) -> str:
     return "Belastbares GKV-/Health-IT-Signal mit fachlichem Account-Bezug."
 
 
+def _deterministic_keep_reason(text_blob: str, is_linkedin: bool) -> str:
+    """Harte Markt-/IT-Signale duerfen nicht nur wegen eines schwachen Scorer-Urteils verschwinden."""
+    blob = text_blob.lower()
+    hard_reason = _hard_signal_reason(blob)
+    if hard_reason:
+        return hard_reason
+    if not is_linkedin and contains_any(blob, GKV_CONTEXT_TERMS) and contains_any(blob, HARD_ACCOUNT_SIGNAL_TERMS):
+        return "Oeffentliches GKV-/Health-IT-Signal mit moeglicher Relevanz fuer Regulierung, Prozesse, Daten, Service, Betrieb oder Dienstleister."
+    return ""
+
+
 def build_hard_signal_rescue_research(all_research: str, limit: int = 12) -> str:
     """Rettet harte Signale aus Rohquellen, ohne LinkedIn-/RSS-Rauschen wieder einzuschleusen."""
     rescued: list[str] = []
@@ -2310,6 +2327,7 @@ Rohmeldungen:
         text_blob = f"{item.get('section', '')} {category} {item.get('text', '')}".lower()
         is_linkedin = "linkedin" in text_blob
         relevance_blob = item.get("text", "").lower() if is_linkedin else text_blob
+        deterministic_reason = _deterministic_keep_reason(text_blob, is_linkedin)
 
         pre_reason = _prefilter_reason(relevance_blob, is_linkedin)
         if pre_reason:
@@ -2330,6 +2348,10 @@ Rohmeldungen:
         score_5 = int(decision.get("score") or 0)
         final_score = max(0, min(100, score_5 * 20))
         keep = bool(decision.get("keep")) and final_score >= MIN_SCORE_KEEP
+        if deterministic_reason and not keep:
+            keep = True
+            final_score = max(final_score, MIN_SCORE_KEEP)
+            category = category or "Marktsignal"
         if final_score >= MIN_SCORE_TOP:
             category = "Top-Thema"
         elif final_score >= MIN_SCORE_KEEP:
@@ -2346,7 +2368,7 @@ Rohmeldungen:
             filter_stats["verworfen"] += 1
             continue
 
-        relevance = str(decision.get("sales_relevance") or "").strip()
+        relevance = str(decision.get("sales_relevance") or deterministic_reason or "").strip()
         source_type = str(decision.get("source_type") or classify_source_label(item.get("text", ""))).strip()
         header_bits = [category, source_type, f"Score={final_score}"]
         if item.get("kasse"):
@@ -2409,6 +2431,80 @@ def build_source_based_newsletter(all_research: str, today: date) -> str:
     return "\n\n".join(lines).strip() + "\n"
 
 
+def generate_compact_editorial_newsletter(client: openai.OpenAI, all_research: str, today: date) -> str:
+    """Schreibt die finale Ausgabe als redaktionelle Fundstueckliste ohne Rubriken."""
+    items = build_editorial_source_items(all_research)
+    relevant_items = [item for item in items if _flat_relevance(item)]
+    relevant_items = _dedupe_flat_items(relevant_items, limit=min(MAX_NEWSLETTER_SOURCES, 24))
+    if not relevant_items:
+        return build_empty_summary(len(items), today)
+
+    source_lines: list[str] = []
+    for idx, item in enumerate(relevant_items, start=1):
+        source_lines.append(
+            "\n".join(
+                [
+                    f"ID: F{idx:02d}",
+                    f"Titel: {_flat_title(item)}",
+                    f"Quelle: {(item.get('url') or '').strip()}",
+                    f"Art: {item.get('kind', '')}",
+                    f"Organisation: {item.get('org', '')}",
+                    f"Text: {_flat_clean_phrase(item.get('text', ''))[:1200]}",
+                    f"Kontext: {_flat_clean_phrase(item.get('context', ''))[:900]}",
+                    f"Warum relevant: {_flat_relevance(item)}",
+                ]
+            )
+        )
+
+    prompt = f"""Du schreibst den persoenlichen KassenInfodienst fuer einen Account Manager im GKV-IT-Vertrieb.
+
+Schreibe aus den Fundstuecken unten eine knappe, redaktionelle Liste. Kein Rubriken-Newsletter, keine Management Summary, keine Quellenuebersicht, keine Meta-Saetze.
+
+Pflichtformat pro Fundstueck:
+- **Kurzer Titel:** 2 bis 5 Saetze. Fasse den Inhalt des Fundstuecks wirklich zusammen. Erklaere konkret, was die Aussage ist und warum sie fuer GKV-IT, Kassen, Dienstleister, Daten, KI, ePA/TI, Prozesse, Service, Regulierung, Betrieb oder Account Management relevant ist. Schreibe nicht generisch.
+  [Quelle](URL)
+
+Wenn das Fundstueck konkrete Aussagen enthaelt, nutze gern kurze Unterpunkte im selben Bullet:
+• Aussage: ...
+• Bedeutung: ...
+
+Regeln:
+- Keine Ueberschriften.
+- Keine getrennten Labels "Signal", "Einordnung" oder "Quelle".
+- Quelle nur als klickbarer Markdown-Link `[Quelle](URL)`, ohne Beschreibung.
+- Keine URLs erfinden; wenn keine URL vorhanden ist, keine Quellenzeile.
+- Keine Scorer-Floskeln wie "Relevant als Hinweis auf Digital-/IT-/Prozessbedarf".
+- Keine Dopplungen. Wenn mehrere Fundstuecke dasselbe Thema betreffen, fasse sie in einem Punkt zusammen und nutze die beste Quelle.
+- Mehr Substanz statt mehr Laenge. Bei {len(relevant_items)} Fundstuecken sollten etwa {min(18, max(8, len(relevant_items)))} gute Punkte entstehen, sofern die Quellen genug hergeben.
+- Deutsch, direkt, fachlich, ohne Werbesprache.
+
+Gute Zielqualitaet:
+- **BKK Dachverband stuetzt die GeDIG-Richtung und rahmt die ePA als Versorgungszentrum:** Der Verband positioniert die ePA nicht nur als Ablage, sondern als Einstieg in Versorgung, Ersteinschaetzung, Terminbuchung und Ueberweisungen. Zusaetzlich befuerwortet er, dass Kassen mit Einwilligung der Versicherten bestimmte ePA-Daten zur fruehzeitigen Risikoerkennung nutzen koennen. Fuer Kassen-IT heisst das: App-Fuehrung, Consent, Datenzugriff, Auswertungslogik und Versorgungsprozesse werden zu einem zusammenhaengenden Umsetzungsfeld.
+  [Quelle](https://example.invalid)
+
+Fundstuecke:
+{chr(10).join(source_lines)[:26000]}
+"""
+
+    try:
+        completion = client.chat.completions.create(
+            model=NEWSLETTER_MODEL,
+            max_completion_tokens=5000,
+            messages=[
+                {"role": "system", "content": "Du bist ein sehr guter deutscher Fachredakteur fuer GKV, Health IT und Kassen-IT. Du verdichtest Quellen zu nuetzlichem Account-Text."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        result = completion.choices[0].message.content or ""
+    except Exception as exc:
+        print(f"   ⚠️  Redaktioneller Kurzschritt fehlgeschlagen, nutze Fallback: {exc}", file=sys.stderr)
+        return build_source_based_newsletter(all_research, today)
+
+    if len(result.strip()) < 400 or newsletter_needs_repair(result, len(relevant_items)):
+        return build_source_based_newsletter(all_research, today)
+    return result.strip() + "\n"
+
+
 
 # ---------------------------------------------------------------------------
 # Newsletter-Erstellung
@@ -2433,6 +2529,7 @@ def save_last_week(newsletter: str, today: date) -> None:
 
 def generate_executive_summary(client: openai.OpenAI, all_research: str, today: date) -> str:
     """Erstellt den kuratierten Newsletter, filtert Wiederholungen aus der letzten Woche heraus."""
+    return generate_compact_editorial_newsletter(client, all_research, today)
 
     last_week = load_last_week()
     last_week_block = ""

@@ -150,8 +150,8 @@ def build_account_intelligence_fallback(all_research: str, today: date) -> str:
 
 
 def generate_account_intelligence_summary(client: digest.openai.OpenAI, all_research: str, today: date) -> str:
-    """Avoid the slow long-form newsletter model; build the compact list directly."""
-    return _BASE_BUILD_SOURCE_BASED_NEWSLETTER(all_research, today)
+    """Write a compact editorial item list instead of the old long-form newsletter."""
+    return digest.generate_compact_editorial_newsletter(client, all_research, today)
 
 
 # Patch the editorial layer before digest.main() runs.
