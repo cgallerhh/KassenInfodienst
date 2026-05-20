@@ -128,6 +128,37 @@ EXCLUDE_TOPIC_TERMS = {
     "podcast", "business talks", "für die ohren", "fuer die ohren",
 }
 
+BITMARCK_KUNDENTAG_TERMS = {
+    "bitmarck kundentag",
+    "bitmarck-kundentag",
+    "bitmarck partnertag",
+    "bitmarck-partnertag",
+    "house of health",
+    "bitmarck standort essen",
+    "kundentag 2026",
+}
+
+STRATEGIC_GKV_EVENT_TERMS = BITMARCK_KUNDENTAG_TERMS | {
+    "itsc zukunftskongress",
+    "itsc-zukunftskongress",
+    "zukunftskongress itsc",
+    "dmea",
+    "messe-rundgang",
+    "messerundgang",
+    "messe highlights",
+    "messe-highlights",
+    "meine highlights",
+}
+
+EVENT_SUBSTANCE_TERMS = {
+    "highlight", "highlights", "takeaways", "kernaussagen", "impulse", "panel",
+    "keynote", "roadmap", "produkt", "produkte", "plattform", "daten", "cloud",
+    "ki", "künstliche intelligenz", "kuenstliche intelligenz", "automatisierung",
+    "epa", "e-pa", "ti", "gematik", "interoperabilität", "interoperabilitaet",
+    "prozess", "prozesse", "service", "digitalisierung", "strategie",
+    "regulatorik", "security", "cyber", "nis2", "kritis",
+}
+
 LINKEDIN_ALLOWED_ROLES = {
     "vorstand", "geschäftsführung", "geschaeftsfuehrung", "cio", "cdo", "cto", "bereichsleitung",
     "leiter", "head of", "pressesprecher", "kommunikation", "politik", "regulierung"
@@ -146,6 +177,14 @@ GKV_CONTEXT_TERMS = {
 }
 
 LINKEDIN_MARKET_QUERIES = [
+    "BITMARCK Kundentag",
+    "BITMARCK-Kundentag",
+    "BITMARCK Partnertag",
+    "BITMARCK-Partnertag",
+    "ITSC Zukunftskongress",
+    '"House of Health" BITMARCK',
+    "CDO DMEA Highlights Krankenkasse",
+    "CIO DMEA Highlights Krankenkasse",
     "GKV IT",
     "Krankenkasse Digitalisierung",
     "gesetzliche Krankenversicherung CIO",
@@ -161,6 +200,12 @@ LINKEDIN_MARKET_QUERIES = [
 ]
 
 NEWS_RSS_MARKET_QUERIES = [
+    '"BITMARCK Kundentag"',
+    '"BITMARCK-Kundentag"',
+    '"BITMARCK Partnertag"',
+    '"BITMARCK-Partnertag"',
+    '"ITSC Zukunftskongress"',
+    '"House of Health" BITMARCK',
     '"GKV" "IT" Digitalisierung',
     '"Krankenkasse" Software Projekt',
     '"gesetzliche Krankenversicherung" KI Automatisierung',
@@ -245,6 +290,9 @@ LINKEDIN_ACCOUNT_VALUE_TERMS = STRATEGIC_TOPIC_TERMS | {
     "gemeinsame it", "plattformverbund", "verbund", "shared service", "shared services",
     "kassen-it", "dienstleistersteuerung", "versorgungspfad", "versorgungsprogramm",
     "selektivvertrag", "digitalstrategie", "kassenpolitik",
+    "bitmarck kundentag", "bitmarck-kundentag", "bitmarck partnertag",
+    "bitmarck-partnertag", "itsc zukunftskongress", "itsc-zukunftskongress",
+    "house of health", "kundentag 2026", "messe highlights", "messe-highlights",
 }
 
 HARD_ACCOUNT_SIGNAL_TERMS = {
@@ -256,6 +304,9 @@ HARD_ACCOUNT_SIGNAL_TERMS = {
     "bsi", "nis2", "kritis", "b3s", "c5", "datenschutz", "informationssicherheit",
     "ausschreibung", "vergabe", "zuschlag", "auftrag", "beschaffung",
     "dienstleister", "bitmarck", "itsc", "aok systems", "gkv informatik",
+    "bitmarck kundentag", "bitmarck-kundentag", "bitmarck partnertag",
+    "bitmarck-partnertag", "itsc zukunftskongress", "itsc-zukunftskongress",
+    "house of health", "kundentag 2026", "messe highlights", "messe-highlights",
 }
 
 SOURCE_RELIABILITY_LABELS = {
@@ -303,13 +354,14 @@ def evaluate_linkedin_signal(org: dict, actor_name: str, actor_title: str, text:
         or org.get("short", "").lower() in text_lower
         or org.get("name", "").lower() in text_lower
     )
-    has_topic = contains_any(text_lower, STRATEGIC_TOPIC_TERMS)
+    is_strategic_event = _is_strategic_event_signal(text_lower)
+    has_topic = contains_any(text_lower, STRATEGIC_TOPIC_TERMS) or is_strategic_event
     has_gkv_context = contains_any(text_lower, GKV_CONTEXT_TERMS) or is_official_or_target
     is_noise = contains_any(text_lower, LINKEDIN_NOISE_TERMS)
 
     if is_non_decision and not is_official_or_target:
         return False, "Nicht-Entscheiderrolle"
-    if is_noise:
+    if is_noise and not is_strategic_event:
         return False, "Karriere/Event/Marketing ohne strategischen Bezug"
     if is_provider and not has_gkv_context:
         return False, "Dienstleisterpost ohne GKV-Kontext"
@@ -322,6 +374,21 @@ def evaluate_linkedin_signal(org: dict, actor_name: str, actor_title: str, text:
     if not (has_topic and has_gkv_context):
         return False, "kein belastbares IT-, Digital-, Regulatorik- oder Marktsignal"
     return True, "qualifiziertes LinkedIn-Signal"
+
+
+def _is_strategic_event_signal(text_blob: str) -> bool:
+    blob = (text_blob or "").lower()
+    if contains_any(blob, BITMARCK_KUNDENTAG_TERMS):
+        return True
+    if "itsc" in blob and contains_any(blob, {"zukunftskongress", "zukunfts kongress"}):
+        return True
+    if "dmea" in blob and contains_any(blob, EVENT_SUBSTANCE_TERMS) and (
+        contains_any(blob, DECISION_MAKER_TERMS)
+        or contains_any(blob, LINKEDIN_ALLOWED_ROLES)
+        or contains_any(blob, GKV_CONTEXT_TERMS)
+    ):
+        return True
+    return contains_any(blob, STRATEGIC_GKV_EVENT_TERMS) and contains_any(blob, EVENT_SUBSTANCE_TERMS)
 
 IMAGE_CACHE: dict[str, str] = {}
 IMAGE_FETCH_COUNT = 0
@@ -822,6 +889,7 @@ def _flat_clean_phrase(text: str) -> str:
         cleaned,
         flags=re.I,
     )
+    cleaned = re.sub(r"\b(Event|Messe|Netzwerkevent)\.?", "", cleaned, flags=re.I)
     return re.sub(r"\s+", " ", cleaned).strip(" -*:")
 
 
@@ -834,6 +902,12 @@ def _flat_title(item: dict) -> str:
 
 def _flat_relevance(item: dict) -> str:
     blob = f"{item.get('org', '')} {item.get('headline', '')} {item.get('text', '')}".lower()
+    if contains_any(blob, BITMARCK_KUNDENTAG_TERMS):
+        return "Relevant, weil der BITMARCK-Kundentag ein zentraler Treffpunkt der GKV-IT ist und Hinweise auf Produktroadmap, Plattformstrategie, Daten-, Cloud-, KI-, Service- und Betriebsprioritaeten der BITMARCK-Kassen liefern kann."
+    if "itsc" in blob and contains_any(blob, {"zukunftskongress", "zukunfts kongress"}):
+        return "Relevant, weil der ITSC-Zukunftskongress als Plattformsignal fuer ITSC-nahe Kassen Hinweise auf Betriebs-, Plattform-, Service-, Daten- und Transformationsprioritaeten liefern kann."
+    if "dmea" in blob and contains_any(blob, EVENT_SUBSTANCE_TERMS):
+        return "Relevant, wenn ein Entscheider seine DMEA-Highlights fachlich einordnet, weil daraus Prioritaeten zu Digital Health, Daten, KI, Interoperabilitaet, ePA/TI oder Versorgungsprozessen sichtbar werden."
     if item.get("kind") == "Vergabe":
         return "Relevant, weil Leistungsbild, Zuständigkeiten oder Budgetfenster sichtbar werden und daraus Prozess-, Integrations-, Betriebs- oder Beratungsbedarf entstehen kann."
     if contains_any(blob, {"fusion", "zusammenschluss"}):
@@ -2008,6 +2082,8 @@ def _extract_candidate_items(all_research: str) -> list[dict]:
 
 def _prefilter_reason(text_blob: str, is_linkedin: bool) -> str:
     is_news_rss = "news/rss" in text_blob or " rss" in text_blob
+    if _is_strategic_event_signal(text_blob):
+        return ""
     if is_news_rss and not is_linkedin and contains_any(text_blob, GKV_CONTEXT_TERMS):
         return ""
     if is_linkedin and contains_any(text_blob, LINKEDIN_NOISE_TERMS | EXCLUDE_TOPIC_TERMS):
@@ -2028,6 +2104,8 @@ def _linkedin_role_ok(text_blob: str) -> bool:
 def _linkedin_quality_reject_reason(text_blob: str) -> str:
     """Harte Nachfilterung, damit fachfremde LinkedIn-Treffer nicht ins Briefing gelangen."""
     blob = text_blob.lower()
+    if _is_strategic_event_signal(blob):
+        return ""
     if contains_any(blob, LINKEDIN_HARD_EXCLUDE_TERMS):
         return "LinkedIn fachfremd oder nur Consumer-/Event-/Follower-Signal"
     if contains_any(blob, LINKEDIN_NOISE_TERMS | EXCLUDE_TOPIC_TERMS):
@@ -2048,6 +2126,8 @@ def _linkedin_quality_reject_reason(text_blob: str) -> str:
 def _hard_signal_reason(text_blob: str) -> str:
     """Deterministische Rettung fuer harte Nicht-Rausch-Signale, wenn der KI-Scorer zu streng ist."""
     blob = text_blob.lower()
+    if _is_strategic_event_signal(blob):
+        return "Strategisches GKV-IT-Event mit Relevanz fuer Plattform-, Produkt-, Daten-, Cloud-, KI-, Service-, Betriebs- oder Dienstleisterthemen."
     if contains_any(blob, LINKEDIN_NOISE_TERMS | LINKEDIN_HARD_EXCLUDE_TERMS):
         return ""
     if not contains_any(blob, HARD_ACCOUNT_SIGNAL_TERMS):
